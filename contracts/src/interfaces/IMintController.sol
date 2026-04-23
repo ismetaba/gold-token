@@ -2,12 +2,17 @@
 pragma solidity 0.8.24;
 
 /// @title IMintController
-/// @notice Çoklu imza + rezerv-kapılı token basımı.
-/// @dev Kritik invaryantlar:
-///      1. Her mint için son PoR atestasyonu ≤ maxReserveAge (35 gün)
-///      2. Mint sonrası totalSupply ≤ ReserveOracle.latestAttestedGrams()
-///      3. 3/5 onay gerekir (5 ayrı adres)
-///      4. Her allocationId tek kullanımlık — çifte mint engellenir
+/// @notice Multi-sig + reserve-gated token issuance.
+/// @dev Critical invariants:
+///      1. Each mint requires a fresh PoR attestation: age <= maxReserveAge (35 days)
+///      2. After mint: totalSupply <= ReserveOracle.latestAttestedGrams()
+///      3. Requires k-of-n approvals (default 3-of-5)
+///      4. Each allocationId is single-use — double-mint is impossible
+///
+/// Fee model:
+///      A MINT_FEE_BPS (25 bps = 0.25%) fee is deducted from every mint.
+///      The fee portion is minted to feeRecipient (Treasury); the remainder goes to the
+///      intended recipient.  The reserve invariant is checked against the gross amount.
 interface IMintController {
     enum ProposalStatus {
         NONE,
@@ -17,11 +22,11 @@ interface IMintController {
     }
 
     struct MintRequest {
-        address to;                 // hedef cüzdan (KYC'li olmalı)
-        uint256 amount;             // gram wei (1e18 = 1g)
-        bytes32 allocationId;       // off-chain UUID (çifte mint koruması)
-        bytes32[] barSerials;       // bu mint'i destekleyen kasa çubukları (seri hash'leri)
-        bytes2 jurisdiction;        // TR/CH/AE/LI
+        address to;                 // destination wallet (must be KYC-verified)
+        uint256 amount;             // gross gram-wei (1e18 = 1 g); fee is deducted from this
+        bytes32 allocationId;       // off-chain UUID (double-mint protection)
+        bytes32[] barSerials;       // hashes of vault bars backing this mint
+        bytes2 jurisdiction;        // ISO-3166: TR / CH / AE / LI …
         uint64 proposedAt;
     }
 
@@ -29,30 +34,32 @@ interface IMintController {
         MintRequest req;
         ProposalStatus status;
         address proposer;
-        address[] approvers;        // onaylayan adresler listesi (dedupe edilmiş)
+        address[] approvers;        // deduplicated list of approving addresses
     }
 
-    /// @notice Yeni mint teklifi açar. Sadece MINT_PROPOSER_ROLE.
+    /// @notice Open a new mint proposal. MINT_PROPOSER_ROLE only.
     function proposeMint(MintRequest calldata req) external returns (bytes32 proposalId);
 
-    /// @notice Teklifi onaylar. Sadece MINT_APPROVER_ROLE. Tek onaylayıcı iki kez onaylayamaz.
+    /// @notice Approve a proposal. MINT_APPROVER_ROLE only. An approver cannot vote twice.
     function approveMint(bytes32 proposalId) external;
 
-    /// @notice Eşik sağlandıktan sonra basımı çalıştırır. Sadece MINT_EXECUTOR_ROLE.
-    /// @dev Rezerv invaryantını çalıştırma anında kontrol eder.
+    /// @notice Execute a mint once the approval threshold is met. MINT_EXECUTOR_ROLE only.
+    /// @dev Checks the reserve invariant at execution time.
     function executeMint(bytes32 proposalId) external;
 
-    /// @notice Teklifi iptal eder (COMPLIANCE_OFFICER_ROLE veya proposer).
+    /// @notice Cancel a proposal (COMPLIANCE_OFFICER_ROLE or proposer).
     function cancelMint(bytes32 proposalId, bytes32 reasonHash) external;
 
-    // Konfigürasyon
+    // Configuration
     function setApprovalThreshold(uint8 threshold) external;
     function setMaxReserveAge(uint256 ageSeconds) external;
     function setRateLimit(uint256 window, uint256 max) external;
+    function setFeeRecipient(address newFeeRecipient) external;
 
-    // Görünüm
+    // View
     function approvalThreshold() external view returns (uint8);
     function maxReserveAge() external view returns (uint256);
+    function feeRecipient() external view returns (address);
     function rateLimit() external view returns (uint256 window, uint256 max);
     function getProposal(bytes32 proposalId) external view returns (Proposal memory);
     function isAllocationUsed(bytes32 allocationId) external view returns (bool);
@@ -68,7 +75,13 @@ interface IMintController {
     event MintApproved(bytes32 indexed proposalId, address indexed approver, uint8 approvalCount);
     event MintExecuted(bytes32 indexed proposalId, uint256 amount, uint256 newTotalSupply);
     event MintCancelled(bytes32 indexed proposalId, bytes32 reasonHash);
+    /// @notice Emitted when the mint fee is collected.
+    /// @param proposalId  The executed proposal.
+    /// @param fee         Fee amount in gram-wei minted to feeRecipient.
+    /// @param feeRecipient Address that received the fee tokens.
+    event MintFeeCollected(bytes32 indexed proposalId, uint256 fee, address indexed feeRecipient);
     event ApprovalThresholdUpdated(uint8 newThreshold);
     event MaxReserveAgeUpdated(uint256 newAgeSeconds);
     event RateLimitUpdated(uint256 window, uint256 max);
+    event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
 }

@@ -16,9 +16,14 @@ import { Errors } from "./libraries/Errors.sol";
 import { Roles } from "./libraries/Roles.sol";
 
 /// @title MintController
-/// @notice Çoklu imza + rezerv-kapılı token basımı.
-/// @dev KRİTİK: totalSupply artı amount, son attestedGrams'ı aşmamalı.
-///      Son atestasyon tazeliği (maxReserveAge) zorunlu.
+/// @notice Multi-sig + reserve-gated token issuance for GOLD (Ethereum mainnet).
+/// @dev CRITICAL: totalSupply + amount must not exceed the latest attestedGrams.
+///      Attestation freshness (maxReserveAge) is enforced at execution time.
+///
+///      Fee model: MINT_FEE_BPS = 25 (0.25%).
+///      On executeMint, `fee = amount * MINT_FEE_BPS / 10_000` is minted to
+///      feeRecipient (Treasury); the remainder goes to the intended recipient.
+///      The reserve invariant is checked against the gross amount.
 contract MintController is
     Initializable,
     AccessControlUpgradeable,
@@ -26,22 +31,26 @@ contract MintController is
     UUPSUpgradeable,
     IMintController
 {
+    /// @notice Mint fee in basis points (25 bps = 0.25%).
+    uint256 public constant MINT_FEE_BPS = 25;
+
     /// @custom:storage-location erc7201:gold.mint.storage
     struct MintStorage {
         IGoldToken token;
         IComplianceRegistry compliance;
         IReserveOracle oracle;
-        uint8 approvalThreshold;            // tipik 3
-        uint8 totalApprovers;               // tipik 5
-        uint256 maxReserveAge;              // saniye (35 gün)
+        address feeRecipient;               // receives mint fee tokens (typically Treasury)
+        uint8 approvalThreshold;            // default 3
+        uint8 totalApprovers;               // default 5
+        uint256 maxReserveAge;              // seconds (35 days)
         mapping(bytes32 => Proposal) proposals;
         mapping(bytes32 => bool) allocationUsed;
         mapping(bytes32 => mapping(address => bool)) hasApproved;
         // Rate limiting
-        uint256 rateLimitWindow;            // pencere uzunluğu saniye (0 = devre dışı)
-        uint256 rateLimitMax;               // pencere başına maksimum gram wei (0 = devre dışı)
-        uint256 rateLimitWindowStart;       // mevcut pencerenin başlangıç zamanı
-        uint256 rateLimitMinted;            // mevcut pencerede basılan miktar
+        uint256 rateLimitWindow;            // window length in seconds (0 = disabled)
+        uint256 rateLimitMax;               // max gram-wei per window (0 = disabled)
+        uint256 rateLimitWindowStart;       // start timestamp of the current window
+        uint256 rateLimitMinted;            // amount minted in the current window
     }
 
     // keccak256(abi.encode(uint256(keccak256("gold.mint.storage")) - 1)) & ~bytes32(uint256(0xff))
@@ -86,6 +95,7 @@ contract MintController is
         $.token = IGoldToken(token_);
         $.compliance = IComplianceRegistry(compliance_);
         $.oracle = IReserveOracle(oracle_);
+        $.feeRecipient = treasury;  // Treasury receives mint fees by default
         $.approvalThreshold = approvalThreshold_;
         $.totalApprovers = uint8(approvers.length);
         $.maxReserveAge = maxReserveAge_;
@@ -103,7 +113,7 @@ contract MintController is
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Akış: propose → approve (k-of-n) → execute
+    // Flow: propose → approve (k-of-n) → execute
     // ──────────────────────────────────────────────────────────────────────
 
     function proposeMint(MintRequest calldata req)
@@ -120,7 +130,7 @@ contract MintController is
             revert Errors.AllocationAlreadyUsed(req.allocationId);
         }
 
-        // proposalId = allocationId — tek-kullanımlık ve tahminli
+        // proposalId == allocationId: single-use and deterministic
         proposalId = req.allocationId;
 
         Proposal storage p = $.proposals[proposalId];
@@ -160,45 +170,53 @@ contract MintController is
             revert Errors.InsufficientApprovals(p.approvers.length, $.approvalThreshold);
         }
 
-        // 1. Compliance: alıcı mint edebilir durumda mı?
+        // 1. Compliance: is the recipient allowed to receive a mint?
         if (!$.compliance.canMint(p.req.to, p.req.amount, p.req.jurisdiction)) {
             revert Errors.NotAuthorized();
         }
 
-        // 2. Rezerv tazeliği: son PoR ≤ maxReserveAge
+        // 2. Reserve freshness: latest PoR must be within maxReserveAge
         uint256 age = $.oracle.timeSinceLatest();
         if (age > $.maxReserveAge) {
             revert Errors.StaleReserveAttestation(block.timestamp - age, $.maxReserveAge);
         }
 
-        // 3. Rezerv invaryantı: totalSupply + amount ≤ attestedGrams
-        uint256 supplyAfter = $.token.totalSupply() + p.req.amount;
+        // 3. Reserve invariant: totalSupply + grossAmount <= attestedGrams
+        uint256 grossAmount = p.req.amount;
+        uint256 supplyAfter = $.token.totalSupply() + grossAmount;
         uint256 attested = $.oracle.latestAttestedGrams();
         if (supplyAfter > attested) {
             revert Errors.ReserveInvariantViolated(supplyAfter, attested);
         }
 
-        // 4. Hız sınırı: pencere başına maksimum basım miktarı
+        // 4. Rate limit: max minted per window (gross amount counts against limit)
         if ($.rateLimitMax > 0) {
             if (block.timestamp >= $.rateLimitWindowStart + $.rateLimitWindow) {
                 $.rateLimitWindowStart = block.timestamp;
                 $.rateLimitMinted = 0;
             }
-            uint256 mintedAfter = $.rateLimitMinted + p.req.amount;
+            uint256 mintedAfter = $.rateLimitMinted + grossAmount;
             if (mintedAfter > $.rateLimitMax) {
                 revert Errors.RateLimitExceeded(mintedAfter, $.rateLimitMax);
             }
             $.rateLimitMinted = mintedAfter;
         }
 
-        // 5. Durumu efect'lerden önce güncelle (CEI)
+        // 5. Effects (CEI: update state before external interactions)
         p.status = ProposalStatus.EXECUTED;
         $.allocationUsed[p.req.allocationId] = true;
 
-        // 6. Etkileşim: mint
-        $.token.mint(p.req.to, p.req.amount, p.req.jurisdiction);
+        // 6. Interaction: split mint between recipient and fee recipient
+        uint256 fee = (grossAmount * MINT_FEE_BPS) / 10_000;
+        uint256 toRecipient = grossAmount - fee;
 
-        emit MintExecuted(proposalId, p.req.amount, supplyAfter);
+        $.token.mint(p.req.to, toRecipient, p.req.jurisdiction);
+        if (fee > 0) {
+            $.token.mint($.feeRecipient, fee, p.req.jurisdiction);
+            emit MintFeeCollected(proposalId, fee, $.feeRecipient);
+        }
+
+        emit MintExecuted(proposalId, grossAmount, supplyAfter);
     }
 
     function cancelMint(bytes32 proposalId, bytes32 reasonHash) external {
@@ -215,7 +233,7 @@ contract MintController is
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Konfigürasyon
+    // Configuration
     // ──────────────────────────────────────────────────────────────────────
 
     function setApprovalThreshold(uint8 threshold) external onlyRole(Roles.TREASURY_ROLE) {
@@ -232,19 +250,28 @@ contract MintController is
         emit MaxReserveAgeUpdated(ageSeconds);
     }
 
-    /// @notice Hız sınırını ayarlar. window=0 veya max=0 → devre dışı.
+    /// @notice Update the fee recipient. Only TREASURY_ROLE.
+    function setFeeRecipient(address newFeeRecipient) external onlyRole(Roles.TREASURY_ROLE) {
+        if (newFeeRecipient == address(0)) revert Errors.ZeroAddress();
+        MintStorage storage $ = _s();
+        address old = $.feeRecipient;
+        $.feeRecipient = newFeeRecipient;
+        emit FeeRecipientUpdated(old, newFeeRecipient);
+    }
+
+    /// @notice Configure rate limiting. window=0 or max=0 disables the limit.
     function setRateLimit(uint256 window, uint256 max) external onlyRole(Roles.TREASURY_ROLE) {
         MintStorage storage $ = _s();
         $.rateLimitWindow = window;
         $.rateLimitMax = max;
-        // Yeni limit aktif olduğunda pencereyi sıfırla
+        // Reset the window when a new limit is applied
         $.rateLimitWindowStart = block.timestamp;
         $.rateLimitMinted = 0;
         emit RateLimitUpdated(window, max);
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Görünüm
+    // View
     // ──────────────────────────────────────────────────────────────────────
 
     function approvalThreshold() external view returns (uint8) {
@@ -253,6 +280,10 @@ contract MintController is
 
     function maxReserveAge() external view returns (uint256) {
         return _s().maxReserveAge;
+    }
+
+    function feeRecipient() external view returns (address) {
+        return _s().feeRecipient;
     }
 
     function getProposal(bytes32 proposalId) external view returns (Proposal memory) {

@@ -11,7 +11,7 @@ import { Errors } from "./libraries/Errors.sol";
 import { Roles } from "./libraries/Roles.sol";
 
 /// @title ComplianceRegistry
-/// @notice GOLD için merkezi uyum durumu. GoldToken _update içinden sorgular.
+/// @notice Central compliance state for GOLD. GoldToken queries this registry in _update.
 contract ComplianceRegistry is
     Initializable,
     AccessControlUpgradeable,
@@ -27,7 +27,6 @@ contract ComplianceRegistry is
     }
 
     // keccak256(abi.encode(uint256(keccak256("gold.compliance.storage")) - 1)) & ~bytes32(uint256(0xff))
-    // TODO(deploy): precompute.
     bytes32 private constant STORAGE_LOCATION =
         0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b200;
 
@@ -67,7 +66,7 @@ contract ComplianceRegistry is
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Ana kapı — GoldToken._update tarafından çağrılır
+    // Primary gate — called by GoldToken._update
     // ──────────────────────────────────────────────────────────────────────
 
     function canTransfer(address from, address to, uint256 amount)
@@ -88,7 +87,7 @@ contract ComplianceRegistry is
         if (pf.kycExpiresAt <= block.timestamp) return false;
         if (pt.kycExpiresAt <= block.timestamp) return false;
 
-        // Travel Rule: eşiği aşan transferlerde counterparty onayı gerekir.
+        // Travel Rule: transfers above the threshold require a counterparty VASP message.
         if (amount >= $.travelRuleThreshold) {
             bytes32 key = _travelRuleKey(from, to, amount);
             if (!$.travelRuleApproved[key]) return false;
@@ -108,14 +107,14 @@ contract ComplianceRegistry is
         if ($.jurisdictionBlocked[jurisdiction]) return false;
         if (p.tier == KycTier.NONE) return false;
         if (p.kycExpiresAt <= block.timestamp) return false;
-        // Mint'te counterparty yok — Travel Rule uygulanmaz.
+        // No counterparty for mints — Travel Rule does not apply.
         return true;
     }
 
     function canBurn(address from, uint256) external view returns (bool) {
         RegStorage storage $ = _s();
         WalletProfile storage p = $.profiles[from];
-        // Kullanıcı kendini yakıp itfa alabilir — frozen/sanctioned değilse.
+        // A user may burn their own tokens unless frozen or sanctioned.
         if (p.frozen || p.sanctioned) return false;
         return true;
     }
@@ -151,7 +150,7 @@ contract ComplianceRegistry is
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Profil yönetimi
+    // Profile management
     // ──────────────────────────────────────────────────────────────────────
 
     function setProfile(address wallet, WalletProfile calldata profile)
@@ -168,7 +167,7 @@ contract ComplianceRegistry is
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Dondurma
+    // Freeze / unfreeze
     // ──────────────────────────────────────────────────────────────────────
 
     function freeze(address wallet, bytes32 reasonHash)
@@ -209,7 +208,7 @@ contract ComplianceRegistry is
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Travel Rule konfigürasyonu
+    // Travel Rule configuration
     // ──────────────────────────────────────────────────────────────────────
 
     function setTravelRuleThreshold(uint256 thresholdWei) external onlyRole(Roles.TREASURY_ROLE) {
@@ -222,7 +221,7 @@ contract ComplianceRegistry is
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Görünüm yardımcıları
+    // View helpers
     // ──────────────────────────────────────────────────────────────────────
 
     function isKycValid(address wallet) external view returns (bool) {

@@ -2,39 +2,41 @@
 pragma solidity 0.8.24;
 
 /// @title IReserveOracle
-/// @notice Aylık bağımsız denetim atestasyonlarının değişmez (append-only) kaydı.
-/// @dev Bu kontrat UUPS DEĞİL — immutable deploy. Her ay denetçi (Big Four)
-///      yeni atestasyon yayınlar. Geçmiş silinemez, düzenlenemez.
+/// @notice Immutable (append-only) record of monthly independent audit attestations.
+/// @dev This contract is NOT UUPS — immutable deploy. A new version is deployed for
+///      bug fixes or role changes, and the MintController is updated via setOracle.
+///      Audit history cannot be deleted or altered.
 interface IReserveOracle {
     struct Attestation {
-        uint64 timestamp;       // denetim tarihi (block.timestamp)
-        uint64 asOf;            // denetimin referans aldığı gün (UTC midnight)
-        uint256 totalGrams;     // tüm kasaların toplam altın miktarı (1e18 ile wei)
-        bytes32 merkleRoot;     // çubuk seviyesinde Merkle ağaç kökü
-        bytes32 ipfsCid;        // tam denetim paketinin IPFS CID'i (bytes32 encoded)
-        address auditor;        // denetim firmasının on-chain adresi
+        uint64 timestamp;       // publication time (block.timestamp)
+        uint64 asOf;            // reference date of the audit (UTC midnight)
+        uint256 totalGrams;     // total gold across all vaults (wei; 1 gram = 1e18)
+        bytes32 merkleRoot;     // Merkle root of the per-bar leaf set
+        bytes32 ipfsCid;        // IPFS CID of the full audit package (bytes32-encoded)
+        address auditor;        // on-chain address of the auditing firm
     }
 
-    /// @notice Yeni denetim atestasyonu yayınla. Sadece AUDITOR_ROLE.
-    /// @dev timestamp ve asOf, önceki atestasyondan büyük olmalı (monotonic).
+    /// @notice Publish a new audit attestation. AUDITOR_ROLE only.
+    /// @dev timestamp and asOf must be strictly greater than the previous attestation
+    ///      (monotonic).
     function publish(Attestation calldata a, bytes calldata signature) external;
 
-    /// @notice Son (en güncel) atestasyon.
+    /// @notice Most recent (latest) attestation.
     function latest() external view returns (Attestation memory);
 
-    /// @notice Index ile atestasyon (append-only history).
+    /// @notice Attestation by index (append-only history).
     function attestationAt(uint256 index) external view returns (Attestation memory);
 
-    /// @notice Toplam yayınlanmış atestasyon sayısı.
+    /// @notice Total number of published attestations.
     function attestationCount() external view returns (uint256);
 
-    /// @notice Son atestasyonun yayınlanmasından bu yana saniye.
+    /// @notice Seconds elapsed since the latest attestation was published.
     function timeSinceLatest() external view returns (uint256);
 
-    /// @notice Son atestasyonun toplam altın miktarı (uyum kontrolü için).
+    /// @notice Total gold grams from the latest attestation (used for reserve invariant).
     function latestAttestedGrams() external view returns (uint256);
 
-    /// @notice Bir çubuğun belirli bir atestasyonda dahil olduğunu Merkle proof ile kanıtla.
+    /// @notice Verify that a bar is included in a specific attestation via Merkle proof.
     /// @param barLeaf keccak256(abi.encode(serial, weight, purity, vault, refinerId))
     function verifyBarInclusion(
         uint256 attestationIndex,
@@ -42,7 +44,7 @@ interface IReserveOracle {
         bytes32[] calldata proof
     ) external view returns (bool);
 
-    /// @notice Yetkili denetçi firmaları (EIP-712 imzalarında).
+    /// @notice Whether the given address is an authorised auditor.
     function isAuthorizedAuditor(address auditor) external view returns (bool);
 
     event AttestationPublished(

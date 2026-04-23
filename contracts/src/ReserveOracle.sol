@@ -11,10 +11,10 @@ import { Errors } from "./libraries/Errors.sol";
 import { Roles } from "./libraries/Roles.sol";
 
 /// @title ReserveOracle
-/// @notice Aylık denetim atestasyonları. Append-only. Upgradable DEĞİL — immutable deploy.
-/// @dev Denetim geçmişinin değiştirilemezliği, güvenin temel taşıdır. Bu kontrat
-///      upgradable olmamalı. Bug veya rol değişikliği için yeni sürüm deploy edilir
-///      ve GoldToken.setReserveOracle yolu MintController'dan yönetilir.
+/// @notice Immutable (append-only) log of monthly independent audit attestations.
+/// @dev This contract is NOT UUPS — it is an immutable deploy. The immutability of
+///      the audit history is the cornerstone of reserve trust. For bug fixes or role
+///      changes a new version is deployed and MintController.setOracle is updated.
 contract ReserveOracle is AccessControl, EIP712, IReserveOracle {
     bytes32 private constant ATTESTATION_TYPEHASH = keccak256(
         "Attestation(uint64 timestamp,uint64 asOf,uint256 totalGrams,bytes32 merkleRoot,bytes32 ipfsCid,address auditor)"
@@ -45,7 +45,7 @@ contract ReserveOracle is AccessControl, EIP712, IReserveOracle {
     function publish(Attestation calldata a, bytes calldata signature) external {
         if (!hasRole(Roles.AUDITOR_ROLE, a.auditor)) revert Errors.UnknownAuditor(a.auditor);
 
-        // EIP-712 imza doğrulaması
+        // EIP-712 signature verification
         bytes32 structHash = keccak256(
             abi.encode(
                 ATTESTATION_TYPEHASH,
@@ -61,7 +61,7 @@ contract ReserveOracle is AccessControl, EIP712, IReserveOracle {
         address recovered = ECDSA.recover(digest, signature);
         if (recovered != a.auditor) revert Errors.InvalidAuditorSignature();
 
-        // Monotonik (tarih geriye gitmez)
+        // Monotonicity: timestamps must strictly increase
         uint256 n = _attestations.length;
         if (n > 0) {
             Attestation storage prev = _attestations[n - 1];
@@ -70,8 +70,7 @@ contract ReserveOracle is AccessControl, EIP712, IReserveOracle {
             }
         }
 
-        // block.timestamp kontrolü — makul pencere (±1 saat)
-        // Saldırgan "gelecek" atestasyon gönderemez.
+        // Sanity check: attestation must not claim a future timestamp (±1 hour tolerance)
         if (a.timestamp > block.timestamp + 1 hours) {
             revert Errors.AttestationMonotonicityViolated(uint64(block.timestamp), a.timestamp);
         }
@@ -84,13 +83,13 @@ contract ReserveOracle is AccessControl, EIP712, IReserveOracle {
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Sorgulama
+    // Queries
     // ──────────────────────────────────────────────────────────────────────
 
     function latest() external view returns (Attestation memory) {
         uint256 n = _attestations.length;
         if (n == 0) {
-            // Henüz yayın yoksa boş dönderir — caller (MintController) staleness check'te yakalar.
+            // No attestations yet; caller (MintController) catches this as a staleness failure.
             return Attestation(0, 0, 0, bytes32(0), bytes32(0), address(0));
         }
         return _attestations[n - 1];
@@ -118,7 +117,7 @@ contract ReserveOracle is AccessControl, EIP712, IReserveOracle {
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Çubuk doğrulaması
+    // Bar verification
     // ──────────────────────────────────────────────────────────────────────
 
     function verifyBarInclusion(
@@ -131,7 +130,7 @@ contract ReserveOracle is AccessControl, EIP712, IReserveOracle {
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Yetki
+    // Auditor management
     // ──────────────────────────────────────────────────────────────────────
 
     function isAuthorizedAuditor(address auditor) external view returns (bool) {

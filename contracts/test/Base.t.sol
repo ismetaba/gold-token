@@ -13,9 +13,9 @@ import { IComplianceRegistry } from "../src/interfaces/IComplianceRegistry.sol";
 import { IReserveOracle } from "../src/interfaces/IReserveOracle.sol";
 import { IMintController } from "../src/interfaces/IMintController.sol";
 
-/// @notice Test ortak setup — aktörler, proxy deploy, roller.
+/// @notice Shared test setup — actors, proxy deployment, role grants.
 abstract contract BaseTest is Test {
-    // Aktörler
+    // Actors
     address internal treasury = makeAddr("treasury");
     address internal pauser = makeAddr("pauser");
     address internal kycWriter = makeAddr("kycWriter");
@@ -32,32 +32,33 @@ abstract contract BaseTest is Test {
         makeAddr("approver5")
     ];
 
-    // Test kullanıcıları
+    // Test users
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
     address internal carol = makeAddr("carol");
 
-    // Denetçi (imza için private key gerekli)
+    // Auditor (needs private key for EIP-712 signing)
     uint256 internal auditorPk = 0xA11CE;
     address internal auditor;
 
-    // Uyum Memuru (imza için private key gerekli)
+    // Compliance Officer (needs private key for EIP-712 signing)
     uint256 internal complianceOfficerPk = 0xC0FF1CE;
-    // complianceOfficer address derived from complianceOfficerPk in setUp()
 
-    // Sözleşmeler
+    // Contracts
     GoldToken internal token;
     ComplianceRegistry internal compliance;
     ReserveOracle internal oracle;
     MintController internal minter;
     BurnController internal burner;
 
-    // Sabitler
+    // Constants
     bytes2 internal constant TR = "TR";
     bytes2 internal constant CH = "CH";
-    uint256 internal constant TRAVEL_RULE_THRESHOLD = 1000 * 1e18; // 1000 gram
+    uint256 internal constant TRAVEL_RULE_THRESHOLD = 1000 * 1e18; // 1 000 grams
     uint256 internal constant MAX_RESERVE_AGE = 35 days;
     uint8 internal constant APPROVAL_THRESHOLD = 3;
+    /// @dev Minimum physical redemption: 100 grams (1 GOLD = 1 gram).
+    uint256 internal constant MIN_PHYSICAL_GRAMS = 100 * 1e18;
 
     function setUp() public virtual {
         auditor = vm.addr(auditorPk);
@@ -104,15 +105,15 @@ abstract contract BaseTest is Test {
         );
         minter = MintController(address(new ERC1967Proxy(address(mintImpl), mintInit)));
 
-        // 5. BurnController
+        // 5. BurnController — minimum physical redemption: 100 grams
         BurnController burnImpl = new BurnController();
         bytes memory burnInit = abi.encodeCall(
             BurnController.initialize,
-            (treasury, address(token), address(compliance), burnOperator, 1000 * 1e18)
+            (treasury, address(token), address(compliance), burnOperator, MIN_PHYSICAL_GRAMS)
         );
         burner = BurnController(address(new ERC1967Proxy(address(burnImpl), burnInit)));
 
-        // 6. Token'a controller adreslerini ata
+        // 6. Register controller addresses on the token
         vm.startPrank(treasury);
         token.setMintController(address(minter));
         token.setBurnController(address(burner));
@@ -120,7 +121,7 @@ abstract contract BaseTest is Test {
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Yardımcılar
+    // Helpers
     // ──────────────────────────────────────────────────────────────────────
 
     function _setKyc(address wallet, bytes2 jurisdiction) internal {
@@ -202,5 +203,10 @@ abstract contract BaseTest is Test {
             jurisdiction: jurisdiction,
             proposedAt: uint64(block.timestamp)
         });
+    }
+
+    /// @dev Returns the net token amount a recipient receives after the 0.25% mint fee.
+    function _netMintAmount(uint256 gross) internal pure returns (uint256) {
+        return gross - (gross * 25 / 10_000);
     }
 }

@@ -27,13 +27,16 @@ contract GoldTokenTest is BaseTest {
         _setKyc(alice, TR);
         _publishReserve(1000 * 1e18);
 
+        uint256 gross = 100 * 1e18;
         bytes32 proposalId =
-            _proposeAndApproveMint(alice, 100 * 1e18, TR, keccak256("alloc-001"));
+            _proposeAndApproveMint(alice, gross, TR, keccak256("alloc-001"));
         vm.prank(executor);
         minter.executeMint(proposalId);
 
-        assertEq(token.balanceOf(alice), 100 * 1e18);
-        assertEq(token.totalSupply(), 100 * 1e18);
+        // Alice receives gross minus the 0.25% mint fee; treasury receives the fee.
+        // Total supply equals gross (fee tokens remain in circulation as treasury balance).
+        assertEq(token.balanceOf(alice), _netMintAmount(gross));
+        assertEq(token.totalSupply(), gross);
     }
 
     function test_transfer_requiresBothSidesKyc() public {
@@ -44,12 +47,12 @@ contract GoldTokenTest is BaseTest {
         vm.prank(executor);
         minter.executeMint(proposalId);
 
-        // Bob'un KYC'si yok → transfer fail
+        // Bob has no KYC — transfer must revert
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(Errors.KycRequired.selector, bob));
         token.transfer(bob, 10 * 1e18);
 
-        // Bob KYC alırsa başarılı
+        // After Bob is KYC-approved the transfer succeeds
         _setKyc(bob, CH);
         vm.prank(alice);
         token.transfer(bob, 10 * 1e18);
@@ -108,7 +111,7 @@ contract GoldTokenTest is BaseTest {
         vm.prank(executor);
         minter.executeMint(pid);
 
-        // 1500 gram (eşik 1000) → Travel Rule gerekli
+        // 1 500 grams (threshold 1 000) → Travel Rule required
         uint256 big = 1_500 * 1e18;
 
         vm.prank(alice);
@@ -117,7 +120,7 @@ contract GoldTokenTest is BaseTest {
         );
         token.transfer(bob, big);
 
-        // Counterparty onayı kaydedildiğinde transfer başarılı
+        // Once counterparty approval is recorded the transfer succeeds
         vm.prank(complianceOfficer);
         compliance.recordTravelRuleApproval(alice, bob, big, keccak256("ivms101-data"));
 

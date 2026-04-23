@@ -14,7 +14,7 @@ library Errors {
     error SanctionsHit(address wallet);
     error TravelRuleRequired(address from, address to, uint256 amount);
 
-    // Mint/Burn
+    // Mint / Burn
     error StaleReserveAttestation(uint256 lastAttestationAt, uint256 maxAge);
     error ReserveInvariantViolated(uint256 supplyAfter, uint256 attestedGrams);
     error ProposalNotFound(bytes32 proposalId);
@@ -23,6 +23,7 @@ library Errors {
     error InsufficientApprovals(uint256 current, uint256 required);
     error AllocationAlreadyUsed(bytes32 allocationId);
     error EmptyBarList();
+    error BelowMinimumRedemption(uint256 amount, uint256 minimum);
 
     // Reserve Oracle
     error AttestationMonotonicityViolated(uint64 previousTimestamp, uint64 newTimestamp);

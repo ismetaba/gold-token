@@ -7,9 +7,9 @@ import { Errors } from "../src/libraries/Errors.sol";
 contract MintControllerTest is BaseTest {
     function test_reserveInvariant_mintBlockedIfExceedsAttested() public {
         _setKyc(alice, TR);
-        _publishReserve(500 * 1e18); // 500 gram kasada
+        _publishReserve(500 * 1e18); // 500 grams in vault
 
-        // 600 gram mint girişimi → invaryant ihlali
+        // Attempt to mint 600 grams — reserve invariant violation
         bytes32 pid =
             _proposeAndApproveMint(alice, 600 * 1e18, TR, keccak256("alloc-over"));
 
@@ -29,7 +29,7 @@ contract MintControllerTest is BaseTest {
         bytes32 pid =
             _proposeAndApproveMint(alice, 100 * 1e18, TR, keccak256("alloc-stale"));
 
-        // 36 gün ileri sar (maxAge = 35)
+        // Advance 36 days (maxAge = 35)
         vm.warp(block.timestamp + 36 days);
 
         vm.prank(executor);
@@ -48,7 +48,7 @@ contract MintControllerTest is BaseTest {
             _mintRequest(alice, 50 * 1e18, keccak256("alloc-few"), bars, TR)
         );
 
-        // Sadece 2 onay (eşik 3)
+        // Only 2 approvals (threshold is 3)
         vm.prank(approvers[0]);
         minter.approveMint(pid);
         vm.prank(approvers[1]);
@@ -91,7 +91,7 @@ contract MintControllerTest is BaseTest {
         vm.prank(executor);
         minter.executeMint(pid);
 
-        // Aynı allocationId ile tekrar propose → fail
+        // Same allocationId on a second propose must revert
         bytes32[] memory bars = new bytes32[](1);
         bars[0] = keccak256("bar-reuse");
         vm.prank(proposer);
@@ -102,23 +102,66 @@ contract MintControllerTest is BaseTest {
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Hız sınırı testleri
+    // Mint fee tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    function test_mintFee_recipientReceivesNetAmount() public {
+        _setKyc(alice, TR);
+        _publishReserve(1000 * 1e18);
+
+        uint256 gross = 100 * 1e18;
+        bytes32 pid = _proposeAndApproveMint(alice, gross, TR, keccak256("alloc-fee-1"));
+        vm.prank(executor);
+        minter.executeMint(pid);
+
+        // Alice receives gross - 0.25% fee
+        uint256 expectedNet = _netMintAmount(gross); // 99.75e18
+        assertEq(token.balanceOf(alice), expectedNet, "recipient net amount");
+
+        // Treasury receives the fee
+        uint256 expectedFee = gross - expectedNet; // 0.25e18
+        assertEq(token.balanceOf(treasury), expectedFee, "treasury fee amount");
+    }
+
+    function test_mintFee_totalSupplyEqualsGrossAmount() public {
+        _setKyc(alice, TR);
+        _publishReserve(1000 * 1e18);
+
+        uint256 gross = 200 * 1e18;
+        bytes32 pid = _proposeAndApproveMint(alice, gross, TR, keccak256("alloc-supply"));
+        vm.prank(executor);
+        minter.executeMint(pid);
+
+        // Total supply == gross (fee tokens are still in circulation as treasury balance)
+        assertEq(token.totalSupply(), gross, "total supply equals gross");
+    }
+
+    function test_mintFee_feeBpsConstant() public view {
+        assertEq(minter.MINT_FEE_BPS(), 25, "MINT_FEE_BPS == 25 bps == 0.25%");
+    }
+
+    function test_mintFee_feeRecipientIsSetToTreasury() public view {
+        assertEq(minter.feeRecipient(), treasury, "feeRecipient is treasury");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Rate limit tests
     // ──────────────────────────────────────────────────────────────────────
 
     function test_rateLimit_blocksExcessiveMint() public {
         _setKyc(alice, TR);
         _publishReserve(10_000 * 1e18);
 
-        // 100 gram/gün sınırı
+        // 100 gram/day rate limit
         vm.prank(treasury);
         minter.setRateLimit(1 days, 100 * 1e18);
 
-        // 100 gram: limit tam dolduruyor — başarılı
+        // Exactly fills the limit — succeeds
         bytes32 pid1 = _proposeAndApproveMint(alice, 100 * 1e18, TR, keccak256("alloc-rl-1"));
         vm.prank(executor);
         minter.executeMint(pid1);
 
-        // 1 gram daha: limit aşıyor → fail
+        // 1 gram more — exceeds limit
         bytes32 pid2 = _proposeAndApproveMint(alice, 1 * 1e18, TR, keccak256("alloc-rl-2"));
         vm.prank(executor);
         vm.expectRevert(
@@ -138,31 +181,33 @@ contract MintControllerTest is BaseTest {
         vm.prank(executor);
         minter.executeMint(pid1);
 
-        // Pencere geçtikten sonra sıfırlanmalı
+        // Advance past the window — counter resets
         vm.warp(block.timestamp + 1 days);
 
         bytes32 pid2 = _proposeAndApproveMint(alice, 100 * 1e18, TR, keccak256("alloc-rw-2"));
         vm.prank(executor);
-        minter.executeMint(pid2); // başarılı — yeni pencere
+        minter.executeMint(pid2); // succeeds — new window
 
-        assertEq(token.balanceOf(alice), 200 * 1e18);
+        // Alice receives 2 × net amounts (fee goes to treasury each time)
+        assertEq(token.balanceOf(alice), 2 * _netMintAmount(100 * 1e18));
     }
 
     function test_rateLimit_disabledWhenZero() public {
         _setKyc(alice, TR);
         _publishReserve(10_000 * 1e18);
 
-        // Varsayılan: hız sınırı yok (0)
+        // Default: rate limit disabled (0)
         (uint256 window, uint256 max) = minter.rateLimit();
         assertEq(window, 0);
         assertEq(max, 0);
 
-        // Büyük miktarda mint başarılı
-        bytes32 pid = _proposeAndApproveMint(alice, 5_000 * 1e18, TR, keccak256("alloc-nrl"));
+        // Large mint succeeds
+        uint256 gross = 5_000 * 1e18;
+        bytes32 pid = _proposeAndApproveMint(alice, gross, TR, keccak256("alloc-nrl"));
         vm.prank(executor);
         minter.executeMint(pid);
 
-        assertEq(token.balanceOf(alice), 5_000 * 1e18);
+        assertEq(token.balanceOf(alice), _netMintAmount(gross));
     }
 
     function test_cancel_byProposer() public {

@@ -18,9 +18,10 @@ import { Errors } from "./libraries/Errors.sol";
 import { Roles } from "./libraries/Roles.sol";
 
 /// @title GoldToken
-/// @notice GOLD — 1 token = 1 gram %99.99 altın. 18 decimals.
-/// @dev UUPS upgradable. Tüm transferler ComplianceRegistry.canTransfer()'dan geçer.
-///      Mint/burn sadece yetkili controller adresleri üzerinden.
+/// @notice GOLD — 1 token = 1 gram of 99.99% physical gold. 18 decimals. Ethereum mainnet.
+/// @dev UUPS-upgradeable. All transfers are routed through ComplianceRegistry.canTransfer().
+///      Mint and burn are restricted to the authorised controller addresses.
+///      On-chain transfer fee: 0% (zero). Mint and burn fees are handled by the controllers.
 contract GoldToken is
     Initializable,
     ERC20Upgradeable,
@@ -47,7 +48,6 @@ contract GoldToken is
         }
     }
 
-    /// @dev Constructor replaced by initializer for upgradability.
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -83,7 +83,7 @@ contract GoldToken is
     // ERC-20
     // ──────────────────────────────────────────────────────────────────────
 
-    /// @dev OZ v5: _update hook'u tüm transfer, mint, burn'ü kapsar.
+    /// @dev OZ v5: the _update hook covers all transfer, mint, and burn paths.
     function _update(address from, address to, uint256 value)
         internal
         override(ERC20Upgradeable)
@@ -92,10 +92,10 @@ contract GoldToken is
         GoldTokenStorage storage $ = _getStorage();
 
         if (from != address(0) && to != address(0)) {
-            // Transfer: compliance kapısı
+            // Transfer: compliance gate
             IComplianceRegistry reg = IComplianceRegistry($.complianceRegistry);
             if (!reg.canTransfer(from, to, value)) {
-                // Hangi kurala takıldığını spesifik hata ile döndür
+                // Return a specific error describing which rule was triggered
                 if (reg.isFrozen(from)) revert Errors.WalletFrozen(from);
                 if (reg.isFrozen(to)) revert Errors.WalletFrozen(to);
                 if (reg.isSanctioned(from)) revert Errors.SanctionsHit(from);
@@ -105,7 +105,6 @@ contract GoldToken is
                 if (reg.travelRuleRequired(from, to, value)) {
                     revert Errors.TravelRuleRequired(from, to, value);
                 }
-                // generic fallback
                 revert Errors.NotAuthorized();
             }
         }
@@ -114,7 +113,7 @@ contract GoldToken is
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Mint / Burn (sadece controller'lar)
+    // Mint / Burn (controllers only)
     // ──────────────────────────────────────────────────────────────────────
 
     function mint(address to, uint256 amount, bytes2 jurisdiction) external {
@@ -123,8 +122,6 @@ contract GoldToken is
         if (to == address(0)) revert Errors.ZeroAddress();
         if (amount == 0) revert Errors.ZeroAmount();
 
-        // Mint için alıcı tarafı canMint kontrolü controller'da yapılır (daha ucuz).
-        // Burada sadece pause kontrolü _update içinde işler.
         _mint(to, amount);
         emit Minted(to, amount, jurisdiction);
     }
@@ -134,7 +131,7 @@ contract GoldToken is
         if (msg.sender != $.burnController) revert Errors.NotAuthorized();
         if (amount == 0) revert Errors.ZeroAmount();
 
-        // allowance kontrolü (burn controller pull-burn yapar)
+        // Pull-burn: user must have approved the burn controller
         _spendAllowance(from, msg.sender, amount);
         _burn(from, amount);
         emit Burned(from, amount);
@@ -153,7 +150,7 @@ contract GoldToken is
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Yönetim
+    // Administration
     // ──────────────────────────────────────────────────────────────────────
 
     function setComplianceRegistry(address newRegistry) external onlyRole(Roles.TREASURY_ROLE) {
@@ -181,7 +178,7 @@ contract GoldToken is
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Görünüm
+    // View
     // ──────────────────────────────────────────────────────────────────────
 
     function complianceRegistry() external view returns (address) {
@@ -200,7 +197,8 @@ contract GoldToken is
     // Upgrade (UUPS)
     // ──────────────────────────────────────────────────────────────────────
 
-    /// @dev Timelock Treasury Safe tarafında zorlanır; burada sadece yetki.
+    /// @dev Upgrade authorisation is enforced by the Timelock Treasury Safe off-chain;
+    ///      this function validates the on-chain role only.
     function _authorizeUpgrade(address newImpl)
         internal
         override
@@ -210,7 +208,7 @@ contract GoldToken is
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Override çözümlemeleri (çoklu kalıtım)
+    // Multiple-inheritance overrides
     // ──────────────────────────────────────────────────────────────────────
 
     function nonces(address owner)

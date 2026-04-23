@@ -18,7 +18,13 @@ import { Errors } from "./libraries/Errors.sol";
 import { Roles } from "./libraries/Roles.sol";
 
 /// @title BurnController
-/// @notice İtfa yakımı + operatör yakımı. Backend yönetimli (kullanıcı approve eder).
+/// @notice User redemption burns + operator burns for GOLD (Ethereum mainnet).
+///
+/// Fee model: BURN_FEE_BPS = 25 (0.25%).
+/// The full req.amount is burned on-chain.  A BurnFeeCollected event reports the
+/// implied fee so the off-chain settlement system delivers req.amount - fee grams
+/// (or equivalent cash) to the user.  This avoids any on-chain token transfer to
+/// the treasury during the burn path while keeping the fee auditable on-chain.
 contract BurnController is
     Initializable,
     AccessControlUpgradeable,
@@ -27,6 +33,9 @@ contract BurnController is
     EIP712Upgradeable,
     IBurnController
 {
+    /// @notice Burn fee in basis points (25 bps = 0.25%).
+    uint256 public constant BURN_FEE_BPS = 25;
+
     bytes32 private constant OPERATOR_BURN_TYPEHASH = keccak256(
         "OperatorBurn(address from,uint256 amount,bytes32 reasonHash,uint256 nonce,uint256 deadline)"
     );
@@ -35,7 +44,7 @@ contract BurnController is
     struct BurnStorage {
         IGoldToken token;
         IComplianceRegistry compliance;
-        uint256 minPhysicalGrams; // tipik 1000 * 1e18 (1kg)
+        uint256 minPhysicalGrams;   // minimum for PHYSICAL redemptions (default 100 * 1e18)
         mapping(bytes32 => RedemptionRequest) redemptions;
         mapping(bytes32 => bool) executed;
         mapping(bytes32 => uint256) executedAt;
@@ -86,7 +95,7 @@ contract BurnController is
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Kullanıcı itfa yakımı
+    // User redemption burn
     // ──────────────────────────────────────────────────────────────────────
 
     function requestRedemption(RedemptionRequest calldata req)
@@ -101,10 +110,10 @@ contract BurnController is
         BurnStorage storage $ = _s();
 
         if (req.redemptionType == RedemptionType.PHYSICAL && req.amount < $.minPhysicalGrams) {
-            revert Errors.ZeroAmount(); // reuse — should be MinPhysicalAmount but keeping Errors set small
+            revert Errors.BelowMinimumRedemption(req.amount, $.minPhysicalGrams);
         }
 
-        // Compliance check: kullanıcı dondurulmuş/yaptırımlı değilse yakıma izin.
+        // Compliance check: user must not be frozen or sanctioned
         if (!$.compliance.canBurn(req.from, req.amount)) revert Errors.NotAuthorized();
 
         reqId = keccak256(
@@ -117,8 +126,14 @@ contract BurnController is
         $.executed[reqId] = true;
         $.executedAt[reqId] = block.timestamp;
 
-        // Token burn — kullanıcı approve etmiş olmalı
+        // Burn the full amount on-chain; off-chain settlement delivers (amount - fee)
         $.token.burnFrom(req.from, req.amount);
+
+        // Compute and emit the burn fee for off-chain settlement
+        uint256 fee = (req.amount * BURN_FEE_BPS) / 10_000;
+        if (fee > 0) {
+            emit BurnFeeCollected(reqId, req.from, fee);
+        }
 
         emit RedemptionRequested(
             reqId, req.from, req.amount, req.redemptionType, req.offChainOrderId
@@ -127,7 +142,7 @@ contract BurnController is
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Operatör burn (ops düzeltme, compliance officer imzası ile)
+    // Operator burn (operational correction with compliance officer signature)
     // ──────────────────────────────────────────────────────────────────────
 
     function operatorBurn(
@@ -150,7 +165,7 @@ contract BurnController is
         bytes32 digest = _hashTypedDataV4(structHash);
         address signer = ECDSA.recover(digest, complianceOfficerSig);
 
-        // Uyum Memuru'nun imzası gerekli — double-control
+        // Dual-control: requires a valid Compliance Officer signature
         if (
             !IAccessControl(address($.compliance)).hasRole(
                 Roles.COMPLIANCE_OFFICER_ROLE, signer
@@ -162,7 +177,7 @@ contract BurnController is
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Konfigürasyon
+    // Configuration
     // ──────────────────────────────────────────────────────────────────────
 
     function setMinPhysicalGrams(uint256 newMin) external onlyRole(Roles.TREASURY_ROLE) {
@@ -171,7 +186,7 @@ contract BurnController is
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // Görünüm
+    // View
     // ──────────────────────────────────────────────────────────────────────
 
     function minPhysicalGrams() external view returns (uint256) {

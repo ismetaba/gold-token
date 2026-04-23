@@ -6,37 +6,36 @@ import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/I
 import { IERC20Permit } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 
 /// @title IGoldToken
-/// @notice 1 GOLD = 1 gram fiziksel altın. 18 decimals. ERC-20 + permit + pausable.
-/// @dev Mint/burn sadece yetkili controller adresleri üzerinden. Tüm transferler
-///      ComplianceRegistry.canTransfer() kapısından geçer.
+/// @notice 1 GOLD = 1 gram of 99.99% physical gold. 18 decimals. ERC-20 + permit + pausable.
+/// @dev Mint/burn restricted to authorised controller addresses only. All transfers
+///      are gated through ComplianceRegistry.canTransfer().
 interface IGoldToken is IERC20, IERC20Metadata, IERC20Permit {
-    /// @notice Aktif compliance registry adresi.
+    /// @notice Active compliance registry address.
     function complianceRegistry() external view returns (address);
 
-    /// @notice Yetkili mint controller — yalnızca bu adres mint() çağırabilir.
+    /// @notice Authorised mint controller — only this address may call mint().
     function mintController() external view returns (address);
 
-    /// @notice Yetkili burn controller — yalnızca bu adres burnFrom() çağırabilir.
+    /// @notice Authorised burn controller — only this address may call burnFrom().
     function burnController() external view returns (address);
 
-    /// @notice Controller tarafından token basımı.
-    /// @dev _update içinde compliance kontrolü mint için ayrı ele alınır (canMint).
+    /// @notice Token issuance by controller.
     function mint(address to, uint256 amount, bytes2 jurisdiction) external;
 
-    /// @notice Controller tarafından token yakımı (kullanıcı adına).
-    /// @dev Kullanıcı izni approve ile verilmelidir; controller pull-burn yapar.
+    /// @notice Token redemption burn by controller (on behalf of user).
+    /// @dev User must approve the controller via ERC-20 approve; controller pull-burns.
     function burnFrom(address from, uint256 amount) external;
 
-    /// @notice Acil pause (sadece PAUSER_ROLE).
+    /// @notice Emergency pause (PAUSER_ROLE only).
     function pause() external;
 
-    /// @notice Unpause (sadece Treasury).
+    /// @notice Unpause (Treasury only).
     function unpause() external;
 
-    /// @notice Pause durumu.
+    /// @notice Pause state.
     function paused() external view returns (bool);
 
-    // Yönetim
+    // Administration
     function setComplianceRegistry(address newRegistry) external;
     function setMintController(address newController) external;
     function setBurnController(address newController) external;

@@ -2,33 +2,33 @@
 pragma solidity 0.8.24;
 
 library Roles {
-    /// @dev Treasury Safe (3/5). Kontrat sahipliği, parametre değişiklikleri, acil durum.
+    /// @dev Treasury Safe (3-of-5). Contract ownership, parameter changes, emergency.
     bytes32 internal constant TREASURY_ROLE = keccak256("gold.role.treasury");
 
-    /// @dev Upgrade yapabilen rol. Timelock + Treasury onayı gerekir.
+    /// @dev May upgrade contracts. Requires Timelock + Treasury approval.
     bytes32 internal constant UPGRADER_ROLE = keccak256("gold.role.upgrader");
 
-    /// @dev Acil durumda pause edebilen rol. Sadece pause; unpause Treasury'dedir.
+    /// @dev May pause in an emergency. Only pause; unpause is restricted to Treasury.
     bytes32 internal constant PAUSER_ROLE = keccak256("gold.role.pauser");
 
-    /// @dev KYC Service backend. Profil yazma yetkisi.
+    /// @dev KYC Service backend. May write wallet profiles.
     bytes32 internal constant KYC_WRITER_ROLE = keccak256("gold.role.kyc_writer");
 
-    /// @dev Compliance Officer. Freeze/unfreeze, manuel inceleme.
+    /// @dev Compliance Officer. May freeze/unfreeze wallets, manual review actions.
     bytes32 internal constant COMPLIANCE_OFFICER_ROLE = keccak256("gold.role.compliance_officer");
 
-    /// @dev Mint teklifi açabilir (Mint/Burn Service backend).
+    /// @dev May propose new mint requests (Mint/Burn Service backend).
     bytes32 internal constant MINT_PROPOSER_ROLE = keccak256("gold.role.mint_proposer");
 
-    /// @dev Mint teklifini onaylayabilir (5 adet; 3'ü gerekli).
+    /// @dev May approve mint proposals (5 seats; 3-of-5 threshold required).
     bytes32 internal constant MINT_APPROVER_ROLE = keccak256("gold.role.mint_approver");
 
-    /// @dev Mint teklifini çalıştırabilir (tek rol, onay eşiği sağlandıktan sonra).
+    /// @dev May execute an approved mint after the threshold is met.
     bytes32 internal constant MINT_EXECUTOR_ROLE = keccak256("gold.role.mint_executor");
 
-    /// @dev Operatör burn (itfa sonrası kasadan düşüş).
+    /// @dev Operator burn — post-redemption vault deduction.
     bytes32 internal constant BURN_OPERATOR_ROLE = keccak256("gold.role.burn_operator");
 
-    /// @dev Denetim atestasyonu yayınlayabilir (Big Four firma cüzdanı).
+    /// @dev May publish reserve attestations (Big Four auditor wallet).
     bytes32 internal constant AUDITOR_ROLE = keccak256("gold.role.auditor");
 }
