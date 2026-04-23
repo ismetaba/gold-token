@@ -3,6 +3,7 @@ pragma solidity 0.8.24;
 
 import { BaseTest } from "./Base.t.sol";
 import { Errors } from "../src/libraries/Errors.sol";
+import { Roles } from "../src/libraries/Roles.sol";
 import { IMintController } from "../src/interfaces/IMintController.sol";
 
 contract MintControllerTest is BaseTest {
@@ -274,6 +275,64 @@ contract MintControllerTest is BaseTest {
         // Bob receives net tokens (not alice)
         assertEq(token.balanceOf(bob), _netMintAmount(200 * 1e18), "bob received tokens");
         assertEq(token.balanceOf(alice), 0, "alice received nothing");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // totalApprovers sync tests (MEDIUM-2)
+    // ──────────────────────────────────────────────────────────────────────
+
+    function test_totalApprovers_syncOnGrant() public {
+        // Initial state: 5 approvers from setUp
+        assertEq(minter.totalApprovers(), 5, "initial totalApprovers");
+
+        // Grant a new approver
+        address newApprover = makeAddr("newApprover");
+        vm.prank(treasury);
+        minter.grantRole(Roles.MINT_APPROVER_ROLE, newApprover);
+
+        assertEq(minter.totalApprovers(), 6, "totalApprovers after grant");
+    }
+
+    function test_totalApprovers_syncOnRevoke() public {
+        assertEq(minter.totalApprovers(), 5, "initial totalApprovers");
+
+        vm.prank(treasury);
+        minter.revokeRole(Roles.MINT_APPROVER_ROLE, approvers[4]);
+
+        assertEq(minter.totalApprovers(), 4, "totalApprovers after revoke");
+    }
+
+    function test_totalApprovers_thresholdValidationUsesUpdatedCount() public {
+        _setKyc(alice, TR);
+        _publishReserve(1000 * 1e18);
+
+        // Grant a 6th approver
+        address newApprover = makeAddr("newApprover");
+        vm.prank(treasury);
+        minter.grantRole(Roles.MINT_APPROVER_ROLE, newApprover);
+        assertEq(minter.totalApprovers(), 6, "totalApprovers is 6");
+
+        // Setting threshold to 6 should work now (was max 5 before the fix)
+        vm.prank(treasury);
+        minter.setApprovalThreshold(6);
+        assertEq(minter.approvalThreshold(), 6);
+
+        // Attempting threshold of 7 should fail
+        vm.prank(treasury);
+        vm.expectRevert(
+            abi.encodeWithSelector(Errors.InsufficientApprovals.selector, 0, 7)
+        );
+        minter.setApprovalThreshold(7);
+    }
+
+    function test_totalApprovers_doubleGrantNoDoubleCount() public {
+        assertEq(minter.totalApprovers(), 5, "initial totalApprovers");
+
+        // Granting to an existing approver should NOT increment
+        vm.prank(treasury);
+        minter.grantRole(Roles.MINT_APPROVER_ROLE, approvers[0]);
+
+        assertEq(minter.totalApprovers(), 5, "totalApprovers unchanged on double grant");
     }
 
     function test_cancel_byProposer() public {

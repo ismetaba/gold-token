@@ -58,6 +58,7 @@ interface IMintController {
 
     // View
     function approvalThreshold() external view returns (uint8);
+    function totalApprovers() external view returns (uint8);
     function maxReserveAge() external view returns (uint256);
     function feeRecipient() external view returns (address);
     function rateLimit() external view returns (uint256 window, uint256 max);
