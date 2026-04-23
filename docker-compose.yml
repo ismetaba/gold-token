@@ -367,10 +367,10 @@ services:
       SECRET_KEY_BASE: "56NtB3PuGWRhi9j7V59Hcd5dJxJ4R2bIHGH7pBbAHNVSq2gA/wJJBrfIBAfntFEw"
       CHAIN_ID: "31337"
       COIN: GOLD
-      COIN_NAME: "AHLG Gold Token"
+      COIN_NAME: "GOLD Token"
       LOGO: "/images/blockscout_logo.svg"
-      SUBNETWORK: "AHLG Local Dev"
-      NETWORK: "AHLG"
+      SUBNETWORK: "GOLD Local Dev"
+      NETWORK: "GOLD"
       DISABLE_EXCHANGE_RATES: "true"
       INDEXER_DISABLE_PENDING_TRANSACTIONS_FETCHER: "true"
       INDEXER_DISABLE_INTERNAL_TRANSACTIONS_FETCHER: "true"
