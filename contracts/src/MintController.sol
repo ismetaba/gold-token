@@ -97,7 +97,7 @@ contract MintController is
         $.oracle = IReserveOracle(oracle_);
         $.feeRecipient = treasury;  // Treasury receives mint fees by default
         $.approvalThreshold = approvalThreshold_;
-        $.totalApprovers = uint8(approvers.length);
+        // totalApprovers is now maintained by _grantRole override — no manual set needed
         $.maxReserveAge = maxReserveAge_;
 
         _grantRole(DEFAULT_ADMIN_ROLE, treasury);
@@ -284,6 +284,10 @@ contract MintController is
         return _s().approvalThreshold;
     }
 
+    function totalApprovers() external view returns (uint8) {
+        return _s().totalApprovers;
+    }
+
     function maxReserveAge() external view returns (uint256) {
         return _s().maxReserveAge;
     }
@@ -303,6 +307,32 @@ contract MintController is
     function rateLimit() external view returns (uint256 window, uint256 max) {
         MintStorage storage $ = _s();
         return ($.rateLimitWindow, $.rateLimitMax);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Role hooks — keep totalApprovers in sync
+    // ──────────────────────────────────────────────────────────────────────
+
+    function _grantRole(bytes32 role, address account)
+        internal
+        override
+        returns (bool granted)
+    {
+        granted = super._grantRole(role, account);
+        if (granted && role == Roles.MINT_APPROVER_ROLE) {
+            _s().totalApprovers++;
+        }
+    }
+
+    function _revokeRole(bytes32 role, address account)
+        internal
+        override
+        returns (bool revoked)
+    {
+        revoked = super._revokeRole(role, account);
+        if (revoked && role == Roles.MINT_APPROVER_ROLE) {
+            _s().totalApprovers--;
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────

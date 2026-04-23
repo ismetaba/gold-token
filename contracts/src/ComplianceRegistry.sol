@@ -28,7 +28,7 @@ contract ComplianceRegistry is
 
     // keccak256(abi.encode(uint256(keccak256("gold.compliance.storage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant STORAGE_LOCATION =
-        0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b200;
+        0xa09d9d1de670bd1cae9af29c86455a7714e3aed8cd6dcbc4ed2dde5e98af2000;
 
     function _s() private pure returns (RegStorage storage $) {
         assembly {
@@ -114,8 +114,10 @@ contract ComplianceRegistry is
     function canBurn(address from, uint256) external view returns (bool) {
         RegStorage storage $ = _s();
         WalletProfile storage p = $.profiles[from];
-        // A user may burn their own tokens unless frozen or sanctioned.
+        // A user may burn their own tokens unless frozen, sanctioned, or lacking valid KYC.
         if (p.frozen || p.sanctioned) return false;
+        if (p.tier == KycTier.NONE) return false;
+        if (p.kycExpiresAt <= block.timestamp) return false;
         return true;
     }
 
