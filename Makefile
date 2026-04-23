@@ -1,4 +1,4 @@
-.PHONY: build test clean deploy-sepolia verify-sepolia upgrade-sepolia upgrade-all-sepolia
+.PHONY: build test test-e2e clean deploy-sepolia verify-sepolia upgrade-sepolia upgrade-all-sepolia
 
 # Load .env if present (silently ignore if missing)
 -include .env
@@ -17,6 +17,10 @@ test:
 
 test-ci:
 	cd $(CONTRACTS_DIR) && $(FORGE) test --profile ci -vvv
+
+test-e2e:
+	@echo "Running end-to-end tests against the Docker Compose stack..."
+	./e2e/e2e_test.sh
 
 clean:
 	cd $(CONTRACTS_DIR) && $(FORGE) clean
