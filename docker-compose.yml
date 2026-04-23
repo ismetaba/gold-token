@@ -349,6 +349,42 @@ services:
     ports:
       - "3000:3000"
 
+  # ── Block Explorer ────────────────────────────────────────────────────────────
+
+  blockscout:
+    image: blockscout/blockscout:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      anvil:
+        condition: service_healthy
+    environment:
+      ETHEREUM_JSONRPC_VARIANT: geth
+      ETHEREUM_JSONRPC_HTTP_URL: http://anvil:8545
+      DATABASE_URL: postgres://gold:gold@postgres:5432/blockscout
+      ECTO_USE_SSL: "false"
+      SECRET_KEY_BASE: "56NtB3PuGWRhi9j7V59Hcd5dJxJ4R2bIHGH7pBbAHNVSq2gA/wJJBrfIBAfntFEw"
+      CHAIN_ID: "31337"
+      COIN: GOLD
+      COIN_NAME: "AHLG Gold Token"
+      LOGO: "/images/blockscout_logo.svg"
+      SUBNETWORK: "AHLG Local Dev"
+      NETWORK: "AHLG"
+      DISABLE_EXCHANGE_RATES: "true"
+      INDEXER_DISABLE_PENDING_TRANSACTIONS_FETCHER: "true"
+      INDEXER_DISABLE_INTERNAL_TRANSACTIONS_FETCHER: "true"
+      FETCH_REWARDS: "false"
+      POOL_SIZE: "10"
+      POOL_SIZE_API: "10"
+    ports:
+      - "4000:4000"
+    command: >
+      sh -c "
+        bin/blockscout eval 'Elixir.Explorer.ReleaseTasks.create_and_migrate()' &&
+        bin/blockscout start
+      "
+
 # ─────────────────────────────────────────────────────────────────────────────
 volumes:
   postgres-data:
