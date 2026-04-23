@@ -51,4 +51,7 @@ const (
 	SubjKYCSubmitted = "kyc.submitted"
 	SubjKYCApproved  = "kyc.approved"
 	SubjKYCRejected  = "kyc.rejected"
+
+	// Price oracle
+	SubjPriceUpdated = "price.updated"
 )
