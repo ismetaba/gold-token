@@ -1,0 +1,44 @@
+# ─── Foundry / Solidity
+out/
+cache/
+broadcast/
+**/lib/
+coverage.lcov
+
+# ─── Go
+bin/
+*.test
+*.out
+coverage.out
+vendor/
+
+# ─── Node / Frontend
+node_modules/
+.next/
+dist/
+build/
+
+# ─── Environments
+.env
+.env.*
+!.env.example
+
+# ─── IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ─── OS
+.DS_Store
+Thumbs.db
+
+# ─── Logs
+*.log
+logs/
+
+# ─── Secrets / Keys (paranoia)
+*.pem
+*.key
+*.p12
+keys/
