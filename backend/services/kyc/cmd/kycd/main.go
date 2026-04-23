@@ -97,7 +97,7 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 	handlers := kychttp.NewHandlers(appRepo, store, verifier, bus, cfg.AdminSecret, log)
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           handlers.Routes(),
+		Handler:           handlers.Routes(cfg.Env),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second, // generous for file uploads
 		WriteTimeout:      15 * time.Second,

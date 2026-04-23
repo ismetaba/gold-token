@@ -16,6 +16,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	pkgevents "github.com/ismetaba/gold-token/backend/pkg/events"
+	"github.com/ismetaba/gold-token/backend/pkg/httputil"
 	"github.com/ismetaba/gold-token/backend/services/auth/internal/domain"
 	"github.com/ismetaba/gold-token/backend/services/auth/internal/repo"
 	"github.com/ismetaba/gold-token/backend/services/auth/internal/tokens"
@@ -37,18 +38,31 @@ func NewHandlers(users repo.UserRepo, tm *tokens.Manager, bus *pkgevents.Bus, lo
 	return &Handlers{users: users, tokens: tm, bus: bus, log: log}
 }
 
-func (h *Handlers) Routes() chi.Router {
+func (h *Handlers) Routes(env string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 
+	if env == "local" {
+		r.Use(httputil.CORSMiddleware(httputil.LocalCORSConfig()))
+	} else {
+		r.Use(httputil.CORSMiddleware(httputil.DefaultCORSConfig()))
+	}
+
+	// Global rate limit: 60 req/min per IP.
+	rl := httputil.NewRateLimiter(60, time.Minute)
+	r.Use(rl.Middleware)
+
+	// Stricter rate limit for auth endpoints: 10 req/min per IP.
+	authRL := httputil.NewRateLimiter(10, time.Minute)
+
 	r.Get("/health", h.health)
 
 	r.Route("/auth", func(r chi.Router) {
-		r.Post("/register", h.register)
-		r.Post("/login", h.login)
-		r.Post("/refresh", h.refresh)
+		r.With(authRL.Middleware).Post("/register", h.register)
+		r.With(authRL.Middleware).Post("/login", h.login)
+		r.With(authRL.Middleware).Post("/refresh", h.refresh)
 		r.With(h.requireAuth).Get("/me", h.me)
 	})
 
@@ -93,8 +107,16 @@ func (h *Handlers) register(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnprocessableEntity, "missing_fields", "email and password are required")
 		return
 	}
+	if !httputil.ValidateEmail(req.Email) {
+		writeErr(w, http.StatusUnprocessableEntity, "invalid_email", "email must be a valid email address")
+		return
+	}
 	if len(req.Password) < 8 {
 		writeErr(w, http.StatusUnprocessableEntity, "password_too_short", "password must be at least 8 characters")
+		return
+	}
+	if len(req.Password) > 72 {
+		writeErr(w, http.StatusUnprocessableEntity, "password_too_long", "password must be at most 72 characters")
 		return
 	}
 

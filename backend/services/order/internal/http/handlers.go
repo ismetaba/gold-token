@@ -20,6 +20,7 @@ import (
 	"go.uber.org/zap"
 
 	pkgevents "github.com/ismetaba/gold-token/backend/pkg/events"
+	"github.com/ismetaba/gold-token/backend/pkg/httputil"
 	"github.com/ismetaba/gold-token/backend/services/order/internal/domain"
 	"github.com/ismetaba/gold-token/backend/services/order/internal/repo"
 )
@@ -68,11 +69,20 @@ func NewHandlers(
 	return h, nil
 }
 
-func (h *Handlers) Routes() chi.Router {
+func (h *Handlers) Routes(env string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+
+	if env == "local" {
+		r.Use(httputil.CORSMiddleware(httputil.LocalCORSConfig()))
+	} else {
+		r.Use(httputil.CORSMiddleware(httputil.DefaultCORSConfig()))
+	}
+
+	rl := httputil.NewRateLimiter(60, time.Minute)
+	r.Use(rl.Middleware)
 
 	r.Get("/health", h.health)
 
@@ -213,6 +223,10 @@ func (h *Handlers) createOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.UserAddress == "" {
 		writeErr(w, http.StatusBadRequest, "missing_address", "user_address is required")
+		return
+	}
+	if !httputil.ValidateEthAddress(body.UserAddress) {
+		writeErr(w, http.StatusBadRequest, "invalid_address", "user_address must be a valid Ethereum address")
 		return
 	}
 	arena := body.Arena
@@ -479,13 +493,22 @@ func orderResponse(o domain.Order) map[string]interface{} {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+// maxGrams is the maximum amount per order (1 million grams = 1 metric ton).
+var maxGrams = new(big.Float).SetPrec(256).SetFloat64(1_000_000)
+
 func gramsToWei(grams string) (*big.Int, error) {
+	if len(grams) > 30 {
+		return nil, errors.New("amount string too long")
+	}
 	f, ok := new(big.Float).SetPrec(256).SetString(grams)
 	if !ok {
 		return nil, errors.New("invalid amount")
 	}
 	if f.Sign() <= 0 {
 		return nil, errors.New("amount must be positive")
+	}
+	if f.Cmp(maxGrams) > 0 {
+		return nil, errors.New("amount exceeds maximum (1,000,000 grams)")
 	}
 	weiF := new(big.Float).SetPrec(256).Mul(f, new(big.Float).SetInt(weiPerGram))
 	wei, _ := weiF.Int(nil)

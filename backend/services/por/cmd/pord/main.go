@@ -152,7 +152,7 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           handlers.Routes(),
+		Handler:           handlers.Routes(cfg.Env),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,

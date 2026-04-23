@@ -55,7 +55,7 @@ func FromEnv() (*Config, error) {
 		SoftHSMTokenLabel: os.Getenv("SOFTHSM2_TOKEN_LABEL"),
 		SoftHSMPin:        os.Getenv("SOFTHSM2_PIN"),
 		SoftHSMKeyLabel:   os.Getenv("SOFTHSM2_KEY_LABEL"),
-		AdminToken:        getenv("POR_ADMIN_TOKEN", "dev-admin-token"),
+		AdminToken:        os.Getenv("POR_ADMIN_TOKEN"),
 		SyncInterval:      getenvDuration("POR_SYNC_INTERVAL", 60*time.Second),
 	}
 

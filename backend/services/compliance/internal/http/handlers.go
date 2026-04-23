@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"github.com/ismetaba/gold-token/backend/pkg/httputil"
 	"github.com/ismetaba/gold-token/backend/services/compliance/internal/domain"
 	"github.com/ismetaba/gold-token/backend/services/compliance/internal/repo"
 	"github.com/ismetaba/gold-token/backend/services/compliance/internal/screener"
@@ -29,11 +30,20 @@ func NewHandlers(r repo.ComplianceRepo, sc screener.Screener, log *zap.Logger) *
 	return &Handlers{repo: r, screener: sc, log: log}
 }
 
-func (h *Handlers) Routes() chi.Router {
+func (h *Handlers) Routes(env string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+
+	if env == "local" {
+		r.Use(httputil.CORSMiddleware(httputil.LocalCORSConfig()))
+	} else {
+		r.Use(httputil.CORSMiddleware(httputil.DefaultCORSConfig()))
+	}
+
+	rl := httputil.NewRateLimiter(60, time.Minute)
+	r.Use(rl.Middleware)
 
 	r.Get("/health", h.health)
 
@@ -78,6 +88,19 @@ func (h *Handlers) screen(w http.ResponseWriter, r *http.Request) {
 	userID, err := uuid.Parse(body.UserID)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid_user_id", "user_id must be a valid UUID")
+		return
+	}
+
+	if body.Name == "" {
+		writeErr(w, http.StatusBadRequest, "missing_name", "name is required")
+		return
+	}
+	if !httputil.ValidateName(body.Name, 1, 200) {
+		writeErr(w, http.StatusBadRequest, "invalid_name", "name must be 1-200 characters with no control characters")
+		return
+	}
+	if body.Country != "" && !httputil.ValidateCountryCode(body.Country) {
+		writeErr(w, http.StatusBadRequest, "invalid_country", "country must be a valid ISO 3166-1 alpha-2 code")
 		return
 	}
 

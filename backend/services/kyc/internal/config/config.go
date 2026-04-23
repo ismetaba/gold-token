@@ -2,6 +2,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 )
@@ -33,7 +35,7 @@ func FromEnv() (*Config, error) {
 		HTTPAddr:         getenv("GOLD_KYC_HTTP_ADDR", ":8083"),
 		JWTPublicKeyFile: os.Getenv("JWT_PUBLIC_KEY_FILE"),
 		StorageDir:       getenv("KYC_STORAGE_DIR", "/tmp/gold-kyc-docs"),
-		AdminSecret:      getenv("KYC_ADMIN_SECRET", "dev-admin-secret"),
+		AdminSecret:      os.Getenv("KYC_ADMIN_SECRET"),
 	}
 
 	c.DatabaseURL = os.Getenv("DATABASE_URL")
@@ -50,6 +52,13 @@ func FromEnv() (*Config, error) {
 				return nil, fmt.Errorf("missing required env: %s", k)
 			}
 		}
+	} else if c.AdminSecret == "" {
+		// Generate a random admin secret for local dev so it's never a static default.
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			return nil, fmt.Errorf("generate random admin secret: %w", err)
+		}
+		c.AdminSecret = hex.EncodeToString(b)
 	}
 	return c, nil
 }
