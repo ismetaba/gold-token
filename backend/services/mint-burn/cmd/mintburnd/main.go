@@ -23,6 +23,7 @@ import (
 	pkgchain "github.com/ismetaba/gold-token/backend/pkg/chain"
 	pkgevents "github.com/ismetaba/gold-token/backend/pkg/events"
 	"github.com/ismetaba/gold-token/backend/pkg/obs"
+	pkgsigner "github.com/ismetaba/gold-token/backend/pkg/signer"
 
 	"github.com/ismetaba/gold-token/backend/services/mint-burn/internal/chain"
 	"github.com/ismetaba/gold-token/backend/services/mint-burn/internal/config"
@@ -144,8 +145,10 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 }
 
 // buildMintControllerClient returns a real EthMintControllerClient when
-// CHAIN_RPC_URL + MINT_CONTROLLER_ADDR + SIGNER_PRIVATE_KEY are all set,
-// otherwise falls back to the in-memory StubClient (local / CI).
+// CHAIN_RPC_URL + MINT_CONTROLLER_ADDR are set, otherwise falls back to the
+// in-memory StubClient (local / CI without a chain node).
+//
+// Signer selection is controlled by SIGNER_TYPE (stub|softhsm).
 func buildMintControllerClient(ctx context.Context, cfg *config.Config, log *zap.Logger) (chain.MintControllerClient, error) {
 	if cfg.ChainRPCURL == "" || cfg.MintCtrlAddr == "" {
 		log.Warn("chain client: stub mode — set CHAIN_RPC_URL + MINT_CONTROLLER_ADDR for production")
@@ -165,17 +168,29 @@ func buildMintControllerClient(ctx context.Context, cfg *config.Config, log *zap
 		return nil, fmt.Errorf("chain ID mismatch: expected %d, got %s", cfg.ChainID, chainID)
 	}
 
-	// Key custody: LocalSigner for dev/test; production plugs in HSM (CAPA-18).
-	if cfg.SignerPrivateKey == "" {
-		return nil, fmt.Errorf("SIGNER_PRIVATE_KEY is required when CHAIN_RPC_URL is set (production: use HSM — CAPA-18)")
-	}
-	signer, err := pkgchain.NewLocalSignerFromHex(cfg.SignerPrivateKey, chainID, ethClient.Inner())
+	// Build the digest-level signer (StubSigner or SoftHSMSigner).
+	digSigner, err := pkgsigner.New(pkgsigner.Config{
+		Type:              pkgsigner.Type(cfg.SignerType),
+		PrivateKeyHex:     cfg.SignerPrivateKey,
+		LibPath:           cfg.SoftHSMLib,
+		TokenLabel:        cfg.SoftHSMTokenLabel,
+		PIN:               cfg.SoftHSMPin,
+		KeyLabel:          cfg.SoftHSMKeyLabel,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("init signer: %w", err)
+		return nil, fmt.Errorf("init signer (%s): %w", cfg.SignerType, err)
 	}
-	log.Warn("chain client: using LocalSigner — NOT suitable for production; wire SoftHSM2 when CAPA-18 is ready")
 
-	mc, err := chain.NewEthMintControllerClient(cfg.MintCtrlAddr, signer, ethClient)
+	// Wrap the digest signer into a transaction signer.
+	txSigner := pkgchain.NewTxSigner(digSigner, chainID, ethClient.Inner())
+
+	signerAddr := txSigner.Address()
+	log.Info("chain signer ready",
+		zap.String("type", cfg.SignerType),
+		zap.String("address", fmt.Sprintf("0x%x", signerAddr[:])),
+	)
+
+	mc, err := chain.NewEthMintControllerClient(cfg.MintCtrlAddr, txSigner, ethClient)
 	if err != nil {
 		return nil, fmt.Errorf("init mint controller client: %w", err)
 	}
@@ -184,10 +199,6 @@ func buildMintControllerClient(ctx context.Context, cfg *config.Config, log *zap
 		zap.String("rpc", cfg.ChainRPCURL),
 		zap.String("chain_id", chainID.String()),
 		zap.String("mint_ctrl", cfg.MintCtrlAddr),
-		zap.String("signer_addr", func() string {
-			a := signer.Address()
-			return fmt.Sprintf("0x%x", a[:])
-		}()),
 	)
 
 	_ = big.NewInt(0) // ensure math/big is used
