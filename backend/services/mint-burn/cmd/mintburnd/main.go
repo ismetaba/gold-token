@@ -9,6 +9,8 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math/big"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 
+	pkgchain "github.com/ismetaba/gold-token/backend/pkg/chain"
 	pkgevents "github.com/ismetaba/gold-token/backend/pkg/events"
 	"github.com/ismetaba/gold-token/backend/pkg/obs"
 
@@ -69,9 +72,12 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 		defer bus.Close()
 	}
 
-	// 3. Chain client — skeleton'da stub. Production: go-ethereum + Fireblocks signer.
-	mc := chain.NewStubClient()
-	log.Warn("chain client: stub mode (not production)")
+	// 3. Chain client — real go-ethereum client when CHAIN_RPC_URL is set;
+	//    falls back to StubClient for local/CI runs without a chain node.
+	mc, err := buildMintControllerClient(ctx, cfg, log)
+	if err != nil {
+		return err
+	}
 
 	// 4. Repos
 	var sagaRepo repo.SagaRepo
@@ -135,4 +141,55 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 		_ = srv.Shutdown(shutCtx)
 		return nil
 	}
+}
+
+// buildMintControllerClient returns a real EthMintControllerClient when
+// CHAIN_RPC_URL + MINT_CONTROLLER_ADDR + SIGNER_PRIVATE_KEY are all set,
+// otherwise falls back to the in-memory StubClient (local / CI).
+func buildMintControllerClient(ctx context.Context, cfg *config.Config, log *zap.Logger) (chain.MintControllerClient, error) {
+	if cfg.ChainRPCURL == "" || cfg.MintCtrlAddr == "" {
+		log.Warn("chain client: stub mode — set CHAIN_RPC_URL + MINT_CONTROLLER_ADDR for production")
+		return chain.NewStubClient(), nil
+	}
+
+	ethClient, err := pkgchain.NewEthClient(cfg.ChainRPCURL)
+	if err != nil {
+		return nil, fmt.Errorf("dial chain RPC: %w", err)
+	}
+
+	chainID, err := ethClient.ChainID(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("fetch chain ID: %w", err)
+	}
+	if cfg.ChainID != 0 && chainID.Int64() != cfg.ChainID {
+		return nil, fmt.Errorf("chain ID mismatch: expected %d, got %s", cfg.ChainID, chainID)
+	}
+
+	// Key custody: LocalSigner for dev/test; production plugs in HSM (CAPA-18).
+	if cfg.SignerPrivateKey == "" {
+		return nil, fmt.Errorf("SIGNER_PRIVATE_KEY is required when CHAIN_RPC_URL is set (production: use HSM — CAPA-18)")
+	}
+	signer, err := pkgchain.NewLocalSignerFromHex(cfg.SignerPrivateKey, chainID, ethClient.Inner())
+	if err != nil {
+		return nil, fmt.Errorf("init signer: %w", err)
+	}
+	log.Warn("chain client: using LocalSigner — NOT suitable for production; wire SoftHSM2 when CAPA-18 is ready")
+
+	mc, err := chain.NewEthMintControllerClient(cfg.MintCtrlAddr, signer, ethClient)
+	if err != nil {
+		return nil, fmt.Errorf("init mint controller client: %w", err)
+	}
+
+	log.Info("chain client: go-ethereum",
+		zap.String("rpc", cfg.ChainRPCURL),
+		zap.String("chain_id", chainID.String()),
+		zap.String("mint_ctrl", cfg.MintCtrlAddr),
+		zap.String("signer_addr", func() string {
+			a := signer.Address()
+			return fmt.Sprintf("0x%x", a[:])
+		}()),
+	)
+
+	_ = big.NewInt(0) // ensure math/big is used
+	return mc, nil
 }

@@ -15,9 +15,11 @@ type Config struct {
 	NATSURL    string
 	NATSStream string
 
-	ChainRPCURL  string
-	ChainID      int64
-	MintCtrlAddr string // 0x... MintController adresi
+	ChainRPCURL      string
+	ChainID          int64
+	MintCtrlAddr     string // 0x… MintController proxy address
+	BurnCtrlAddr     string // 0x… BurnController proxy address
+	SignerPrivateKey  string // hex ECDSA key — dev/test only; leave empty to use HSM (CAPA-18)
 
 	ApprovalTimeout  time.Duration
 	StepPollInterval time.Duration
@@ -39,6 +41,8 @@ func FromEnv() (*Config, error) {
 	c.NATSURL = os.Getenv("NATS_URL")
 	c.ChainRPCURL = os.Getenv("CHAIN_RPC_URL")
 	c.MintCtrlAddr = os.Getenv("MINT_CONTROLLER_ADDR")
+	c.BurnCtrlAddr = os.Getenv("BURN_CONTROLLER_ADDR")
+	c.SignerPrivateKey = os.Getenv("SIGNER_PRIVATE_KEY") // hex; prod uses HSM via CAPA-18
 	c.ChainID = int64(getenvInt("CHAIN_ID", 1))
 
 	if c.Env != "local" {
