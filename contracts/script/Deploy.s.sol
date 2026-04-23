@@ -100,5 +100,24 @@ contract Deploy is Script {
         console2.log("MintController:", address(minter));
         console2.log("BurnController:", address(burner));
         console2.log("Treasury:", treasury);
+
+        // Write address registry JSON for backend config
+        string memory obj = "addresses";
+        vm.serializeAddress(obj, "complianceRegistry", address(compliance));
+        vm.serializeAddress(obj, "goldToken", address(token));
+        vm.serializeAddress(obj, "reserveOracle", address(oracle));
+        vm.serializeAddress(obj, "mintController", address(minter));
+        vm.serializeAddress(obj, "burnController", address(burner));
+        vm.serializeAddress(obj, "treasury", treasury);
+        vm.serializeUint(obj, "chainId", block.chainid);
+        string memory json = vm.serializeUint(obj, "deployedAt", block.timestamp);
+
+        string memory outPath = string.concat(
+            "./deployments/",
+            vm.toString(block.chainid),
+            ".json"
+        );
+        vm.writeJson(json, outPath);
+        console2.log("Address registry written to:", outPath);
     }
 }
