@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Go: lint
+  # ─────────────────────────────────────────────
+  go-lint:
+    name: Go — Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.62.2
+          working-directory: backend
+
+  # ─────────────────────────────────────────────
+  # Go: test
+  # ─────────────────────────────────────────────
+  go-test:
+    name: Go — Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Test
+        working-directory: backend
+        run: go test -race -coverprofile=coverage.out ./...
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: go-coverage
+          path: backend/coverage.out
+
+  # ─────────────────────────────────────────────
+  # Go: build
+  # ─────────────────────────────────────────────
+  go-build:
+    name: Go — Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Build all services
+        working-directory: backend
+        run: go build ./...
+
+  # ─────────────────────────────────────────────
+  # Contracts: forge build + test
+  # ─────────────────────────────────────────────
+  contracts-forge:
+    name: Contracts — Forge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: forge build
+        working-directory: contracts
+        run: forge build --sizes
+
+      - name: forge test
+        working-directory: contracts
+        run: forge test -vv
+
+  # ─────────────────────────────────────────────
+  # Contracts: slither static analysis
+  # ─────────────────────────────────────────────
+  contracts-slither:
+    name: Contracts — Slither
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - uses: crytic/slither-action@v0.4.0
+        with:
+          target: contracts/
+          slither-args: --foundry-compile-all
+          fail-on: high
