@@ -133,7 +133,13 @@ contract MintController is
         // proposalId == allocationId: single-use and deterministic
         proposalId = req.allocationId;
 
+        // Clear stale approvals from any previous (cancelled) proposal
         Proposal storage p = $.proposals[proposalId];
+        for (uint256 i = 0; i < p.approvers.length; i++) {
+            delete $.hasApproved[proposalId][p.approvers[i]];
+        }
+        delete $.proposals[proposalId];
+
         p.req = req;
         p.status = ProposalStatus.PROPOSED;
         p.proposer = msg.sender;
