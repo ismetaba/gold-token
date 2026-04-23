@@ -43,9 +43,14 @@ const (
 	SubjReserveSnapshot     = "gold.reserve.snapshot.v1"
 	SubjReserveAttestation  = "gold.reserve.attestation.v1"
 
+	// Order (created — published by order service)
+	SubjOrderCreated = "gold.order.created.v1"
+
 	// Compliance
-	SubjComplianceAlert  = "gold.compliance.alert.v1"
-	SubjComplianceFreeze = "gold.compliance.freeze.v1"
+	SubjComplianceApproved = "gold.compliance.approved.v1"
+	SubjComplianceRejected = "gold.compliance.rejected.v1"
+	SubjComplianceAlert    = "gold.compliance.alert.v1"
+	SubjComplianceFreeze   = "gold.compliance.freeze.v1"
 
 	// KYC
 	SubjKYCSubmitted = "kyc.submitted"

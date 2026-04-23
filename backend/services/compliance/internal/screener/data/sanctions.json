@@ -1,0 +1,20 @@
+{
+  "_comment": "POC local sanctions list. Replace / extend with OFAC/EU SDN feed in production.",
+  "version": "2026-04-23",
+  "entries": [
+    {
+      "id": "SDN-001",
+      "name": "Evade McSanctions",
+      "aliases": ["E. McSanctions", "Evade M"],
+      "country": "XX",
+      "reason": "test-blocked"
+    },
+    {
+      "id": "SDN-002",
+      "name": "Freeze Assets Corp",
+      "aliases": ["FA Corp", "Freeze Assets LLC"],
+      "country": "XX",
+      "reason": "test-blocked"
+    }
+  ]
+}
