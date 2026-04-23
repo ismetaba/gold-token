@@ -46,4 +46,9 @@ const (
 	// Compliance
 	SubjComplianceAlert  = "gold.compliance.alert.v1"
 	SubjComplianceFreeze = "gold.compliance.freeze.v1"
+
+	// KYC
+	SubjKYCSubmitted = "kyc.submitted"
+	SubjKYCApproved  = "kyc.approved"
+	SubjKYCRejected  = "kyc.rejected"
 )
