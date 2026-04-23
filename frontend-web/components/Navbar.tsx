@@ -9,6 +9,7 @@ import {
   History,
   LayoutDashboard,
   LogOut,
+  Settings,
   Shield,
   ShoppingCart,
   TrendingDown,
@@ -25,6 +26,8 @@ const navItems = [
   { href: "/kyc", label: "Kimlik", icon: CreditCard },
   { href: "/proof-of-reserve", label: "Rezerv Kanıtı", icon: Shield },
 ];
+
+const isAdmin = (role?: string) => role === "admin" || role === "superadmin";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -74,6 +77,19 @@ export default function Navbar() {
             );
           })}
         </nav>
+
+        {/* Admin link */}
+        {isAdmin(user?.role) && (
+          <div className="px-4 pb-2">
+            <Link
+              href="/admin"
+              className="flex items-center gap-2 text-xs text-yellow-400 hover:text-yellow-300 transition-colors"
+            >
+              <Settings size={12} />
+              Admin Panel
+            </Link>
+          </div>
+        )}
 
         {/* User + logout */}
         <div className="p-4 border-t border-slate-700">
@@ -125,7 +141,17 @@ export default function Navbar() {
               );
             })}
           </nav>
-          <div className="px-4 pt-4 border-t border-slate-700">
+          <div className="px-4 pt-4 border-t border-slate-700 space-y-3">
+            {isAdmin(user?.role) && (
+              <Link
+                href="/admin"
+                onClick={() => setMobileOpen(false)}
+                className="flex items-center gap-2 text-sm text-yellow-400"
+              >
+                <Settings size={14} />
+                Admin Panel
+              </Link>
+            )}
             <button
               onClick={handleLogout}
               className="flex items-center gap-2 text-sm text-slate-400"
