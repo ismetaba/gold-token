@@ -3,6 +3,7 @@ package http
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"go.uber.org/zap"
 
 	pkgevents "github.com/ismetaba/gold-token/backend/pkg/events"
+	"github.com/ismetaba/gold-token/backend/pkg/httputil"
 	"github.com/ismetaba/gold-token/backend/services/kyc/internal/domain"
 	"github.com/ismetaba/gold-token/backend/services/kyc/internal/jwtverify"
 	"github.com/ismetaba/gold-token/backend/services/kyc/internal/repo"
@@ -56,11 +58,22 @@ func NewHandlers(
 }
 
 // Routes returns the configured router.
-func (h *Handlers) Routes() chi.Router {
+func (h *Handlers) Routes(env string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+
+	// CORS: restrictive in production, permissive in local dev.
+	if env == "local" {
+		r.Use(httputil.CORSMiddleware(httputil.LocalCORSConfig()))
+	} else {
+		r.Use(httputil.CORSMiddleware(httputil.DefaultCORSConfig()))
+	}
+
+	// Rate limiting: 60 requests per minute per IP.
+	rl := httputil.NewRateLimiter(60, time.Minute)
+	r.Use(rl.Middleware)
 
 	r.Get("/health", h.health)
 
@@ -107,10 +120,27 @@ func (h *Handlers) submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate date format.
-	if _, err := time.Parse("2006-01-02", dob); err != nil {
+	if !httputil.ValidateName(firstName, 1, 100) {
+		writeErr(w, http.StatusUnprocessableEntity, "invalid_first_name",
+			"first_name must be 1-100 characters with no control characters")
+		return
+	}
+	if !httputil.ValidateName(lastName, 1, 100) {
+		writeErr(w, http.StatusUnprocessableEntity, "invalid_last_name",
+			"last_name must be 1-100 characters with no control characters")
+		return
+	}
+
+	// Validate date format and age (18-150).
+	if _, ok := httputil.ValidateDateOfBirth(dob, 18, 150); !ok {
 		writeErr(w, http.StatusUnprocessableEntity, "invalid_date",
-			"date_of_birth must be in YYYY-MM-DD format")
+			"date_of_birth must be in YYYY-MM-DD format and represent an age between 18 and 150")
+		return
+	}
+
+	if !httputil.ValidateCountryCode(nationality) {
+		writeErr(w, http.StatusUnprocessableEntity, "invalid_nationality",
+			"nationality must be a valid ISO 3166-1 alpha-2 country code")
 		return
 	}
 
@@ -275,7 +305,7 @@ func (h *Handlers) requireAuth(next http.Handler) http.Handler {
 func (h *Handlers) requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		secret := r.Header.Get("X-Admin-Secret")
-		if secret == "" || secret != h.adminSecret {
+		if secret == "" || subtle.ConstantTimeCompare([]byte(secret), []byte(h.adminSecret)) != 1 {
 			writeErr(w, http.StatusForbidden, "forbidden", "valid X-Admin-Secret header required")
 			return
 		}

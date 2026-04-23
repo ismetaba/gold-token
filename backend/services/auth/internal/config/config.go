@@ -20,7 +20,7 @@ type Config struct {
 
 	// Access token TTL (seconds). Default 900 (15 min).
 	AccessTokenTTL int
-	// Refresh token TTL (seconds). Default 604800 (7 days).
+	// Refresh token TTL (seconds). Default 86400 (24 hours).
 	RefreshTokenTTL int
 }
 
@@ -33,7 +33,7 @@ func FromEnv() (*Config, error) {
 		JWTPrivateKeyFile: os.Getenv("JWT_PRIVATE_KEY_FILE"),
 		JWTPublicKeyFile:  os.Getenv("JWT_PUBLIC_KEY_FILE"),
 		AccessTokenTTL:    getenvInt("JWT_ACCESS_TTL_SECONDS", 900),
-		RefreshTokenTTL:   getenvInt("JWT_REFRESH_TTL_SECONDS", 604800),
+		RefreshTokenTTL:   getenvInt("JWT_REFRESH_TTL_SECONDS", 86400),
 	}
 
 	c.DatabaseURL = os.Getenv("DATABASE_URL")

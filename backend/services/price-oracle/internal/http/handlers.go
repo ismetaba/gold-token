@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
 
+	"github.com/ismetaba/gold-token/backend/pkg/httputil"
 	"github.com/ismetaba/gold-token/backend/services/price-oracle/internal/domain"
 	"github.com/ismetaba/gold-token/backend/services/price-oracle/internal/oracle"
 	"github.com/ismetaba/gold-token/backend/services/price-oracle/internal/repo"
@@ -28,11 +29,20 @@ func NewHandlers(o *oracle.Oracle, r repo.PriceRepo, log *zap.Logger) *Handlers 
 }
 
 // Routes returns the chi router with all endpoints registered.
-func (h *Handlers) Routes() chi.Router {
+func (h *Handlers) Routes(env string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+
+	if env == "local" {
+		r.Use(httputil.CORSMiddleware(httputil.LocalCORSConfig()))
+	} else {
+		r.Use(httputil.CORSMiddleware(httputil.DefaultCORSConfig()))
+	}
+
+	rl := httputil.NewRateLimiter(60, time.Minute)
+	r.Use(rl.Middleware)
 
 	r.Get("/health", h.health)
 
@@ -83,7 +93,7 @@ func (h *Handlers) history(w http.ResponseWriter, r *http.Request) {
 	}
 	window, err := time.ParseDuration(windowStr)
 	if err != nil || window <= 0 {
-		writeErr(w, http.StatusBadRequest, "invalid_window", "window must be a valid Go duration (e.g. 1h, 24h, 168h)")
+		writeErr(w, http.StatusBadRequest, "invalid_window", "window must be a positive duration (e.g. 1h, 24h, 168h)")
 		return
 	}
 	const maxWindow = 720 * time.Hour

@@ -7,11 +7,14 @@ package http
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"github.com/ismetaba/gold-token/backend/pkg/httputil"
 	"github.com/ismetaba/gold-token/backend/services/mint-burn/internal/repo"
 )
 
@@ -24,8 +27,21 @@ func NewHandlers(sagas repo.SagaRepo, log *zap.Logger) *Handlers {
 	return &Handlers{sagas: sagas, log: log}
 }
 
-func (h *Handlers) Routes() chi.Router {
+func (h *Handlers) Routes(env string) chi.Router {
 	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Recoverer)
+
+	if env == "local" {
+		r.Use(httputil.CORSMiddleware(httputil.LocalCORSConfig()))
+	} else {
+		r.Use(httputil.CORSMiddleware(httputil.DefaultCORSConfig()))
+	}
+
+	rl := httputil.NewRateLimiter(60, time.Minute)
+	r.Use(rl.Middleware)
+
 	r.Get("/health", h.health)
 	r.Get("/readyz", h.readyz)
 	r.Route("/admin/sagas", func(r chi.Router) {

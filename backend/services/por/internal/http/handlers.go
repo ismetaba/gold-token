@@ -3,6 +3,7 @@ package http
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,7 @@ import (
 	"go.uber.org/zap"
 
 	pkgevents "github.com/ismetaba/gold-token/backend/pkg/events"
+	"github.com/ismetaba/gold-token/backend/pkg/httputil"
 	porchain "github.com/ismetaba/gold-token/backend/services/por/internal/chain"
 	"github.com/ismetaba/gold-token/backend/services/por/internal/domain"
 	"github.com/ismetaba/gold-token/backend/services/por/internal/repo"
@@ -74,11 +76,20 @@ func NewHandlers(
 }
 
 // Routes registers all HTTP routes.
-func (h *Handlers) Routes() chi.Router {
+func (h *Handlers) Routes(env string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+
+	if env == "local" {
+		r.Use(httputil.CORSMiddleware(httputil.LocalCORSConfig()))
+	} else {
+		r.Use(httputil.CORSMiddleware(httputil.DefaultCORSConfig()))
+	}
+
+	rl := httputil.NewRateLimiter(60, time.Minute)
+	r.Use(rl.Middleware)
 
 	r.Get("/health", h.health)
 
@@ -106,7 +117,7 @@ func (h *Handlers) requireAdmin(next http.Handler) http.Handler {
 		if token == "" {
 			token = r.Header.Get("X-Admin-Token")
 		}
-		if token != h.adminToken {
+		if subtle.ConstantTimeCompare([]byte(token), []byte(h.adminToken)) != 1 {
 			writeErr(w, http.StatusUnauthorized, "unauthorized", "valid admin token required")
 			return
 		}
@@ -253,6 +264,22 @@ func (h *Handlers) attest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate timestamps are within reasonable bounds.
+	now := time.Now().Unix()
+	if req.Timestamp > now+3600 {
+		writeErr(w, http.StatusBadRequest, "invalid_timestamp", "timestamp cannot be more than 1 hour in the future")
+		return
+	}
+	if req.AsOf > now {
+		writeErr(w, http.StatusBadRequest, "invalid_as_of", "as_of cannot be in the future")
+		return
+	}
+	const ninetyDays = 90 * 24 * 3600
+	if req.AsOf < now-ninetyDays {
+		writeErr(w, http.StatusBadRequest, "invalid_as_of", "as_of cannot be more than 90 days in the past")
+		return
+	}
+
 	totalGrams, ok := new(big.Int).SetString(req.TotalGramsWei, 10)
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "invalid_total_grams_wei", "total_grams_wei must be a decimal integer string")
@@ -296,7 +323,7 @@ func (h *Handlers) attest(w http.ResponseWriter, r *http.Request) {
 	txHash, err := h.writer.Publish(r.Context(), publishReq)
 	if err != nil {
 		h.log.Error("publish attestation on-chain", zap.Error(err))
-		writeErr(w, http.StatusInternalServerError, "chain_error", fmt.Sprintf("publish failed: %v", err))
+		writeErr(w, http.StatusInternalServerError, "chain_error", "could not publish attestation on-chain")
 		return
 	}
 

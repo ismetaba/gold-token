@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"github.com/ismetaba/gold-token/backend/pkg/httputil"
 	"github.com/ismetaba/gold-token/backend/services/wallet/internal/domain"
 	"github.com/ismetaba/gold-token/backend/services/wallet/internal/repo"
 )
@@ -65,11 +66,20 @@ func NewHandlers(wallets repo.WalletRepo, txs repo.TxRepo, chain BalanceReader, 
 	return h, nil
 }
 
-func (h *Handlers) Routes() chi.Router {
+func (h *Handlers) Routes(env string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+
+	if env == "local" {
+		r.Use(httputil.CORSMiddleware(httputil.LocalCORSConfig()))
+	} else {
+		r.Use(httputil.CORSMiddleware(httputil.DefaultCORSConfig()))
+	}
+
+	rl := httputil.NewRateLimiter(60, time.Minute)
+	r.Use(rl.Middleware)
 
 	r.Get("/health", h.health)
 
