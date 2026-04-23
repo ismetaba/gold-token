@@ -291,7 +291,9 @@ func (o *Orchestrator) publishMintExecuted(ctx context.Context, s *domain.Saga) 
 		AmountWei    string `json:"amount_wei"`
 		TxHash       string `json:"tx_hash"`
 		AllocationID string `json:"allocation_id"`
+		ToAddress    string `json:"to_address"` // 0x-prefixed; wallet service uses this to attribute the tx
 	}
+	to := s.Context.MintReq.To
 	return events.Publish(ctx, o.bus, events.Envelope[payload]{
 		EventType:     events.SubjMintExecuted,
 		AggregateID:   s.ID.String(),
@@ -302,6 +304,7 @@ func (o *Orchestrator) publishMintExecuted(ctx context.Context, s *domain.Saga) 
 			AmountWei:    s.Context.MintReq.AmountWei.String(),
 			TxHash:       s.Context.ExecuteTxHash,
 			AllocationID: s.Context.MintReq.AllocationID.String(),
+			ToAddress:    fmt.Sprintf("0x%x", to[:]),
 		},
 	})
 }
