@@ -28,7 +28,7 @@ func NewConsumer(bus *pkgevents.Bus, handlers *comphttp.Handlers, log *zap.Logge
 // Start registers all subscriptions. Non-blocking.
 func (c *Consumer) Start(ctx context.Context) error {
 	if err := c.bus.Subscribe(
-		ctx, c.stream, "compliance.order_created",
+		ctx, c.stream, "compliance_order_created",
 		pkgevents.SubjOrderCreated, c.handleOrderCreated,
 	); err != nil {
 		return fmt.Errorf("subscribe order.created: %w", err)

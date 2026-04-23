@@ -39,7 +39,7 @@ func NewConsumer(bus *events.Bus, orch *saga.Orchestrator, log *zap.Logger, stre
 // Start, consumer'ları kaydeder. Non-blocking; mesajlar iç goroutine'de işlenir.
 func (c *Consumer) Start(ctx context.Context) error {
 	return c.bus.Subscribe(
-		ctx, c.stream, "mintburn.order_ready_to_mint", events.SubjOrderReadyToMint,
+		ctx, c.stream, "mintburn_order_ready_to_mint", events.SubjOrderReadyToMint,
 		c.handleOrderReadyToMint,
 	)
 }

@@ -6,7 +6,7 @@ set -e
 SERVER="nats://nats:4222"
 
 echo "Waiting for NATS at ${SERVER}..."
-until nats --server="${SERVER}" server ping > /dev/null 2>&1; do
+until nats --server="${SERVER}" account info > /dev/null 2>&1; do
   sleep 1
 done
 echo "NATS is ready."
@@ -26,6 +26,7 @@ else
     --dupe-window=2m \
     --max-msgs=-1 \
     --max-bytes=-1 \
-    --max-msg-size=-1
+    --max-msg-size=-1 \
+    --defaults
   echo "Stream GOLD created."
 fi

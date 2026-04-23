@@ -33,14 +33,14 @@ func NewConsumer(bus *pkgevents.Bus, wallets repo.WalletRepo, txs repo.TxRepo, l
 // by internal goroutines managed by the NATS JetStream library.
 func (c *Consumer) Start(ctx context.Context) error {
 	if err := c.bus.Subscribe(
-		ctx, c.stream, "wallet.mint_executed", pkgevents.SubjMintExecuted,
+		ctx, c.stream, "wallet_mint_executed", pkgevents.SubjMintExecuted,
 		c.handleMintExecuted,
 	); err != nil {
 		return fmt.Errorf("subscribe mint executed: %w", err)
 	}
 
 	if err := c.bus.Subscribe(
-		ctx, c.stream, "wallet.burn_executed", pkgevents.SubjBurnExecuted,
+		ctx, c.stream, "wallet_burn_executed", pkgevents.SubjBurnExecuted,
 		c.handleBurnExecuted,
 	); err != nil {
 		return fmt.Errorf("subscribe burn executed: %w", err)

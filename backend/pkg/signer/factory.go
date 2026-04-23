@@ -49,7 +49,7 @@ func ConfigFromEnv() Config {
 	return Config{
 		Type:          Type(strings.ToLower(getenvOr("SIGNER_TYPE", string(TypeStub)))),
 		PrivateKeyHex: os.Getenv("SIGNER_PRIVATE_KEY"),
-		LibPath:       getenvOr("SOFTHSM2_LIB", defaultSoftHSMLib()),
+		LibPath:       os.Getenv("SOFTHSM2_LIB"),
 		TokenLabel:    os.Getenv("SOFTHSM2_TOKEN_LABEL"),
 		PIN:           os.Getenv("SOFTHSM2_PIN"),
 		KeyLabel:      os.Getenv("SOFTHSM2_KEY_LABEL"),
@@ -67,22 +67,7 @@ func New(cfg Config) (Signer, error) {
 		return NewStubSignerFromHex(cfg.PrivateKeyHex)
 
 	case TypeSoftHSM:
-		hsmCfg := SoftHSMConfig{
-			LibPath:    cfg.LibPath,
-			TokenLabel: cfg.TokenLabel,
-			PIN:        cfg.PIN,
-			KeyLabel:   cfg.KeyLabel,
-		}
-		if hsmCfg.LibPath == "" {
-			return nil, fmt.Errorf("signer: SOFTHSM2_LIB must be set for softhsm signer")
-		}
-		if hsmCfg.TokenLabel == "" {
-			return nil, fmt.Errorf("signer: SOFTHSM2_TOKEN_LABEL must be set for softhsm signer")
-		}
-		if hsmCfg.KeyLabel == "" {
-			return nil, fmt.Errorf("signer: SOFTHSM2_KEY_LABEL must be set for softhsm signer")
-		}
-		return NewSoftHSMSigner(hsmCfg)
+		return newSoftHSMSigner(cfg)
 
 	default:
 		return nil, fmt.Errorf("signer: unknown type %q (valid: stub, softhsm)", cfg.Type)
@@ -96,21 +81,4 @@ func getenvOr(key, def string) string {
 		return v
 	}
 	return def
-}
-
-// defaultSoftHSMLib returns the most common install path for libsofthsm2.so
-// based on the host OS. Returns empty string if neither path exists.
-func defaultSoftHSMLib() string {
-	candidates := []string{
-		"/usr/lib/softhsm/libsofthsm2.so",         // Debian/Ubuntu
-		"/usr/local/lib/softhsm/libsofthsm2.so",   // macOS brew
-		"/usr/lib64/pkcs11/libsofthsm2.so",         // RHEL/Fedora
-		"/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so",
-	}
-	for _, p := range candidates {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	return ""
 }

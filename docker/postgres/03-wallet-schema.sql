@@ -9,8 +9,7 @@ CREATE TABLE IF NOT EXISTS wallet.wallets (
     address     TEXT NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-    CONSTRAINT uq_wallet_user    UNIQUE (user_id),
-    CONSTRAINT uq_wallet_address UNIQUE (lower(address))
+    CONSTRAINT uq_wallet_user    UNIQUE (user_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_wallet_address ON wallet.wallets (lower(address));

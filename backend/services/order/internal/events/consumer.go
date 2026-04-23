@@ -30,25 +30,25 @@ func NewConsumer(bus *pkgevents.Bus, orders repo.OrderRepo, log *zap.Logger, str
 // Start registers all subscriptions. Non-blocking; messages processed in internal goroutines.
 func (c *Consumer) Start(ctx context.Context) error {
 	if err := c.bus.Subscribe(
-		ctx, c.stream, "order.mint_executed",
+		ctx, c.stream, "order_mint_executed",
 		pkgevents.SubjMintExecuted, c.handleMintExecuted,
 	); err != nil {
 		return fmt.Errorf("subscribe mint_executed: %w", err)
 	}
 	if err := c.bus.Subscribe(
-		ctx, c.stream, "order.mint_failed",
+		ctx, c.stream, "order_mint_failed",
 		pkgevents.SubjMintFailed, c.handleMintFailed,
 	); err != nil {
 		return fmt.Errorf("subscribe mint_failed: %w", err)
 	}
 	if err := c.bus.Subscribe(
-		ctx, c.stream, "order.burn_executed",
+		ctx, c.stream, "order_burn_executed",
 		pkgevents.SubjBurnExecuted, c.handleBurnExecuted,
 	); err != nil {
 		return fmt.Errorf("subscribe burn_executed: %w", err)
 	}
 	if err := c.bus.Subscribe(
-		ctx, c.stream, "order.burn_failed",
+		ctx, c.stream, "order_burn_failed",
 		pkgevents.SubjBurnFailed, c.handleBurnFailed,
 	); err != nil {
 		return fmt.Errorf("subscribe burn_failed: %w", err)
