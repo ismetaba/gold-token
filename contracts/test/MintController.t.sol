@@ -3,6 +3,7 @@ pragma solidity 0.8.24;
 
 import { BaseTest } from "./Base.t.sol";
 import { Errors } from "../src/libraries/Errors.sol";
+import { IMintController } from "../src/interfaces/IMintController.sol";
 
 contract MintControllerTest is BaseTest {
     function test_reserveInvariant_mintBlockedIfExceedsAttested() public {
@@ -208,6 +209,71 @@ contract MintControllerTest is BaseTest {
         minter.executeMint(pid);
 
         assertEq(token.balanceOf(alice), _netMintAmount(gross));
+    }
+
+    function test_reProposalAfterCancel_clearsStaleApprovals() public {
+        _setKyc(alice, TR);
+        _setKyc(bob, TR);
+        _publishReserve(10_000 * 1e18);
+
+        bytes32 allocId = keccak256("alloc-stale-approval");
+
+        // Step 1: Propose a mint for alice
+        bytes32[] memory bars1 = new bytes32[](1);
+        bars1[0] = keccak256("bar-v1");
+        vm.prank(proposer);
+        bytes32 pid = minter.proposeMint(
+            _mintRequest(alice, 100 * 1e18, allocId, bars1, TR)
+        );
+
+        // Step 2: Get 2 of 3 required approvals
+        vm.prank(approvers[0]);
+        minter.approveMint(pid);
+        vm.prank(approvers[1]);
+        minter.approveMint(pid);
+
+        // Step 3: Cancel the proposal
+        vm.prank(proposer);
+        minter.cancelMint(pid, keccak256("changed-params"));
+
+        // Step 4: Re-propose with DIFFERENT params (bob, different amount)
+        bytes32[] memory bars2 = new bytes32[](1);
+        bars2[0] = keccak256("bar-v2");
+        vm.prank(proposer);
+        bytes32 pid2 = minter.proposeMint(
+            _mintRequest(bob, 200 * 1e18, allocId, bars2, TR)
+        );
+        // proposalId is deterministic from allocationId
+        assertEq(pid2, pid, "proposalId unchanged");
+
+        // Step 5: Verify old approvals are cleared — proposal has 0 approvers
+        IMintController.Proposal memory p = minter.getProposal(pid2);
+        assertEq(p.approvers.length, 0, "stale approvers must be cleared");
+        assertEq(p.req.to, bob, "new recipient");
+        assertEq(p.req.amount, 200 * 1e18, "new amount");
+
+        // Step 6: Attempting execution fails — no approvals yet
+        vm.prank(executor);
+        vm.expectRevert(
+            abi.encodeWithSelector(Errors.InsufficientApprovals.selector, 0, 3)
+        );
+        minter.executeMint(pid2);
+
+        // Step 7: Full new approval round required — previous approvers can approve again
+        vm.prank(approvers[0]);
+        minter.approveMint(pid2);
+        vm.prank(approvers[1]);
+        minter.approveMint(pid2);
+        vm.prank(approvers[2]);
+        minter.approveMint(pid2);
+
+        // Step 8: Now execution succeeds with the new params
+        vm.prank(executor);
+        minter.executeMint(pid2);
+
+        // Bob receives net tokens (not alice)
+        assertEq(token.balanceOf(bob), _netMintAmount(200 * 1e18), "bob received tokens");
+        assertEq(token.balanceOf(alice), 0, "alice received nothing");
     }
 
     function test_cancel_byProposer() public {
