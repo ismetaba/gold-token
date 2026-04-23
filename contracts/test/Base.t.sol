@@ -19,7 +19,7 @@ abstract contract BaseTest is Test {
     address internal treasury = makeAddr("treasury");
     address internal pauser = makeAddr("pauser");
     address internal kycWriter = makeAddr("kycWriter");
-    address internal complianceOfficer = makeAddr("complianceOfficer");
+    address internal complianceOfficer; // derived from complianceOfficerPk in setUp()
     address internal proposer = makeAddr("proposer");
     address internal executor = makeAddr("executor");
     address internal burnOperator = makeAddr("burnOperator");
@@ -41,6 +41,10 @@ abstract contract BaseTest is Test {
     uint256 internal auditorPk = 0xA11CE;
     address internal auditor;
 
+    // Uyum Memuru (imza için private key gerekli)
+    uint256 internal complianceOfficerPk = 0xC0FF1CE;
+    // complianceOfficer address derived from complianceOfficerPk in setUp()
+
     // Sözleşmeler
     GoldToken internal token;
     ComplianceRegistry internal compliance;
@@ -57,6 +61,7 @@ abstract contract BaseTest is Test {
 
     function setUp() public virtual {
         auditor = vm.addr(auditorPk);
+        complianceOfficer = vm.addr(complianceOfficerPk);
 
         // 1. ComplianceRegistry
         ComplianceRegistry regImpl = new ComplianceRegistry();

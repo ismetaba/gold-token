@@ -42,8 +42,9 @@ contract BurnController is
         mapping(address => uint256) opBurnNonces;
     }
 
+    // keccak256(abi.encode(uint256(keccak256("gold.burn.storage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant STORAGE_LOCATION =
-        0xd4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d400;
+        0x8b62586ea3a733308049a7012d65db511d720e030d68785e3b52c81289a85900;
 
     function _s() private pure returns (BurnStorage storage $) {
         assembly {
@@ -133,23 +134,23 @@ contract BurnController is
         address from,
         uint256 amount,
         bytes32 reasonHash,
+        uint256 deadline,
         bytes calldata complianceOfficerSig
     ) external nonReentrant onlyRole(Roles.BURN_OPERATOR_ROLE) {
         if (from == address(0)) revert Errors.ZeroAddress();
         if (amount == 0) revert Errors.ZeroAmount();
+        if (block.timestamp > deadline) revert Errors.DeadlineExpired(deadline);
 
         BurnStorage storage $ = _s();
         uint256 nonce = $.opBurnNonces[from]++;
 
         bytes32 structHash = keccak256(
-            abi.encode(OPERATOR_BURN_TYPEHASH, from, amount, reasonHash, nonce, block.timestamp)
+            abi.encode(OPERATOR_BURN_TYPEHASH, from, amount, reasonHash, nonce, deadline)
         );
         bytes32 digest = _hashTypedDataV4(structHash);
         address signer = ECDSA.recover(digest, complianceOfficerSig);
 
         // Uyum Memuru'nun imzası gerekli — double-control
-        // NOT: Bu basitleştirilmiş çağrı; gerçek deadline yerine block.timestamp kullanır.
-        // Produksiyon versiyonunda `deadline` parametresi olmalı ve check edilmeli.
         if (
             !IAccessControl(address($.compliance)).hasRole(
                 Roles.COMPLIANCE_OFFICER_ROLE, signer
@@ -184,6 +185,14 @@ contract BurnController is
     {
         BurnStorage storage $ = _s();
         return ($.redemptions[reqId], $.executed[reqId], $.executedAt[reqId]);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // EIP-712
+    // ──────────────────────────────────────────────────────────────────────
+
+    function DOMAIN_SEPARATOR() external view returns (bytes32) {
+        return _domainSeparatorV4();
     }
 
     // ──────────────────────────────────────────────────────────────────────

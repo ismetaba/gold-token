@@ -48,10 +48,12 @@ interface IMintController {
     // Konfigürasyon
     function setApprovalThreshold(uint8 threshold) external;
     function setMaxReserveAge(uint256 ageSeconds) external;
+    function setRateLimit(uint256 window, uint256 max) external;
 
     // Görünüm
     function approvalThreshold() external view returns (uint8);
     function maxReserveAge() external view returns (uint256);
+    function rateLimit() external view returns (uint256 window, uint256 max);
     function getProposal(bytes32 proposalId) external view returns (Proposal memory);
     function isAllocationUsed(bytes32 allocationId) external view returns (bool);
 
@@ -68,4 +70,5 @@ interface IMintController {
     event MintCancelled(bytes32 indexed proposalId, bytes32 reasonHash);
     event ApprovalThresholdUpdated(uint8 newThreshold);
     event MaxReserveAgeUpdated(uint256 newAgeSeconds);
+    event RateLimitUpdated(uint256 window, uint256 max);
 }

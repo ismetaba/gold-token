@@ -30,6 +30,12 @@ library Errors {
     error UnknownAuditor(address signer);
     error InvalidMerkleProof();
 
+    // Signatures / Deadlines
+    error DeadlineExpired(uint256 deadline);
+
+    // Rate limiting
+    error RateLimitExceeded(uint256 attempted, uint256 max);
+
     // Upgrade
     error UpgradeNotTimelocked();
     error UpgradeTimelockActive(uint256 until);

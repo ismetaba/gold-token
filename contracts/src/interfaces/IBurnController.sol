@@ -30,10 +30,12 @@ interface IBurnController {
 
     /// @notice Operatör burn — ops düzeltmesi (örn. yanlış mint geri alımı).
     ///         Sadece BURN_OPERATOR_ROLE + COMPLIANCE_OFFICER onayı gerekir.
+    /// @param deadline İmzanın son geçerlilik zamanı (Unix timestamp). block.timestamp > deadline → revert.
     function operatorBurn(
         address from,
         uint256 amount,
         bytes32 reasonHash,
+        uint256 deadline,
         bytes calldata complianceOfficerSig
     ) external;
 

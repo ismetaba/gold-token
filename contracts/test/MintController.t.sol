@@ -101,6 +101,70 @@ contract MintControllerTest is BaseTest {
         minter.proposeMint(_mintRequest(alice, 50 * 1e18, allocId, bars, TR));
     }
 
+    // ──────────────────────────────────────────────────────────────────────
+    // Hız sınırı testleri
+    // ──────────────────────────────────────────────────────────────────────
+
+    function test_rateLimit_blocksExcessiveMint() public {
+        _setKyc(alice, TR);
+        _publishReserve(10_000 * 1e18);
+
+        // 100 gram/gün sınırı
+        vm.prank(treasury);
+        minter.setRateLimit(1 days, 100 * 1e18);
+
+        // 100 gram: limit tam dolduruyor — başarılı
+        bytes32 pid1 = _proposeAndApproveMint(alice, 100 * 1e18, TR, keccak256("alloc-rl-1"));
+        vm.prank(executor);
+        minter.executeMint(pid1);
+
+        // 1 gram daha: limit aşıyor → fail
+        bytes32 pid2 = _proposeAndApproveMint(alice, 1 * 1e18, TR, keccak256("alloc-rl-2"));
+        vm.prank(executor);
+        vm.expectRevert(
+            abi.encodeWithSelector(Errors.RateLimitExceeded.selector, 101 * 1e18, 100 * 1e18)
+        );
+        minter.executeMint(pid2);
+    }
+
+    function test_rateLimit_resetsAfterWindow() public {
+        _setKyc(alice, TR);
+        _publishReserve(10_000 * 1e18);
+
+        vm.prank(treasury);
+        minter.setRateLimit(1 days, 100 * 1e18);
+
+        bytes32 pid1 = _proposeAndApproveMint(alice, 100 * 1e18, TR, keccak256("alloc-rw-1"));
+        vm.prank(executor);
+        minter.executeMint(pid1);
+
+        // Pencere geçtikten sonra sıfırlanmalı
+        vm.warp(block.timestamp + 1 days);
+
+        bytes32 pid2 = _proposeAndApproveMint(alice, 100 * 1e18, TR, keccak256("alloc-rw-2"));
+        vm.prank(executor);
+        minter.executeMint(pid2); // başarılı — yeni pencere
+
+        assertEq(token.balanceOf(alice), 200 * 1e18);
+    }
+
+    function test_rateLimit_disabledWhenZero() public {
+        _setKyc(alice, TR);
+        _publishReserve(10_000 * 1e18);
+
+        // Varsayılan: hız sınırı yok (0)
+        (uint256 window, uint256 max) = minter.rateLimit();
+        assertEq(window, 0);
+        assertEq(max, 0);
+
+        // Büyük miktarda mint başarılı
+        bytes32 pid = _proposeAndApproveMint(alice, 5_000 * 1e18, TR, keccak256("alloc-nrl"));
+        vm.prank(executor);
+        minter.executeMint(pid);
+
+        assertEq(token.balanceOf(alice), 5_000 * 1e18);
+    }
+
     function test_cancel_byProposer() public {
         _setKyc(alice, TR);
         _publishReserve(1000 * 1e18);

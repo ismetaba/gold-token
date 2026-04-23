@@ -38,9 +38,8 @@ contract GoldToken is
     }
 
     // keccak256(abi.encode(uint256(keccak256("gold.token.storage")) - 1)) & ~bytes32(uint256(0xff))
-    // TODO(deploy): precompute ve hardcode et — aşağıdaki değer placeholder.
     bytes32 private constant STORAGE_LOCATION =
-        0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a100;
+        0x4964a4de2330c7e38a2bb854e4da584e39f4533666e0f28100a6fba722473300;
 
     function _getStorage() private pure returns (GoldTokenStorage storage $) {
         assembly {

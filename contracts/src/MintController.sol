@@ -37,11 +37,16 @@ contract MintController is
         mapping(bytes32 => Proposal) proposals;
         mapping(bytes32 => bool) allocationUsed;
         mapping(bytes32 => mapping(address => bool)) hasApproved;
+        // Rate limiting
+        uint256 rateLimitWindow;            // pencere uzunluğu saniye (0 = devre dışı)
+        uint256 rateLimitMax;               // pencere başına maksimum gram wei (0 = devre dışı)
+        uint256 rateLimitWindowStart;       // mevcut pencerenin başlangıç zamanı
+        uint256 rateLimitMinted;            // mevcut pencerede basılan miktar
     }
 
     // keccak256(abi.encode(uint256(keccak256("gold.mint.storage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant STORAGE_LOCATION =
-        0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c300;
+        0xc4a8579f1e899c49fc9c3473bba3ff1123780e65bca83ece63cf77572c1fb100;
 
     function _s() private pure returns (MintStorage storage $) {
         assembly {
@@ -173,11 +178,24 @@ contract MintController is
             revert Errors.ReserveInvariantViolated(supplyAfter, attested);
         }
 
-        // 4. Durumu efect'lerden önce güncelle (CEI)
+        // 4. Hız sınırı: pencere başına maksimum basım miktarı
+        if ($.rateLimitMax > 0) {
+            if (block.timestamp >= $.rateLimitWindowStart + $.rateLimitWindow) {
+                $.rateLimitWindowStart = block.timestamp;
+                $.rateLimitMinted = 0;
+            }
+            uint256 mintedAfter = $.rateLimitMinted + p.req.amount;
+            if (mintedAfter > $.rateLimitMax) {
+                revert Errors.RateLimitExceeded(mintedAfter, $.rateLimitMax);
+            }
+            $.rateLimitMinted = mintedAfter;
+        }
+
+        // 5. Durumu efect'lerden önce güncelle (CEI)
         p.status = ProposalStatus.EXECUTED;
         $.allocationUsed[p.req.allocationId] = true;
 
-        // 5. Etkileşim: mint
+        // 6. Etkileşim: mint
         $.token.mint(p.req.to, p.req.amount, p.req.jurisdiction);
 
         emit MintExecuted(proposalId, p.req.amount, supplyAfter);
@@ -214,6 +232,17 @@ contract MintController is
         emit MaxReserveAgeUpdated(ageSeconds);
     }
 
+    /// @notice Hız sınırını ayarlar. window=0 veya max=0 → devre dışı.
+    function setRateLimit(uint256 window, uint256 max) external onlyRole(Roles.TREASURY_ROLE) {
+        MintStorage storage $ = _s();
+        $.rateLimitWindow = window;
+        $.rateLimitMax = max;
+        // Yeni limit aktif olduğunda pencereyi sıfırla
+        $.rateLimitWindowStart = block.timestamp;
+        $.rateLimitMinted = 0;
+        emit RateLimitUpdated(window, max);
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     // Görünüm
     // ──────────────────────────────────────────────────────────────────────
@@ -232,6 +261,11 @@ contract MintController is
 
     function isAllocationUsed(bytes32 allocationId) external view returns (bool) {
         return _s().allocationUsed[allocationId];
+    }
+
+    function rateLimit() external view returns (uint256 window, uint256 max) {
+        MintStorage storage $ = _s();
+        return ($.rateLimitWindow, $.rateLimitMax);
     }
 
     // ──────────────────────────────────────────────────────────────────────
