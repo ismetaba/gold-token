@@ -4,12 +4,12 @@ import { useEffect, useState } from "react";
 import { adminApi } from "@/lib/api-client";
 import type { AdminUserRow, KycStatus } from "@/lib/types";
 import {
+  AlertTriangle,
   CheckCircle,
   ChevronDown,
   Clock,
   Loader2,
   Search,
-  ShieldCheck,
   ShieldOff,
   UserCheck,
   XCircle,
@@ -52,6 +52,7 @@ export default function AdminUsersPage() {
   const [search, setSearch] = useState("");
   const [reviewing, setReviewing] = useState<string | null>(null); // kycSessionId
   const [reviewResult, setReviewResult] = useState<Record<string, "approved" | "rejected">>({});
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   const load = async (filter?: KycStatus | "all") => {
     setLoading(true);
@@ -81,16 +82,25 @@ export default function AdminUsersPage() {
   ) => {
     if (!user.kycSessionId) return;
     setReviewing(user.kycSessionId);
+    setReviewError(null);
+
+    // Snapshot for rollback
+    const previousUsers = users;
+    const newStatus = action === "approve" ? "approved" : "rejected";
+
+    // Optimistic update
+    setUsers((prev) =>
+      prev.map((u) => (u.id === user.id ? { ...u, kycStatus: newStatus } : u))
+    );
+
     try {
       await adminApi.reviewKyc(user.kycSessionId, { action });
-      setReviewResult((prev) => ({ ...prev, [user.kycSessionId!]: action === "approve" ? "approved" : "rejected" }));
-      // Optimistically update local state
-      setUsers((prev) =>
-        prev.map((u) =>
-          u.id === user.id
-            ? { ...u, kycStatus: action === "approve" ? "approved" : "rejected" }
-            : u
-        )
+      setReviewResult((prev) => ({ ...prev, [user.kycSessionId!]: newStatus }));
+    } catch (err: unknown) {
+      // Rollback optimistic update on failure
+      setUsers(previousUsers);
+      setReviewError(
+        err instanceof Error ? err.message : `Failed to ${action} KYC — please try again.`
       );
     } finally {
       setReviewing(null);
@@ -106,6 +116,21 @@ export default function AdminUsersPage() {
           Manage users and review KYC applications
         </p>
       </div>
+
+      {/* Review error banner */}
+      {reviewError && (
+        <div className="mb-4 flex items-center gap-2 bg-red-500/10 border border-red-500/30 text-red-300 text-sm px-4 py-3 rounded-xl">
+          <AlertTriangle size={15} className="shrink-0" />
+          <span>{reviewError}</span>
+          <button
+            onClick={() => setReviewError(null)}
+            className="ml-auto text-red-400 hover:text-red-200 transition-colors"
+            aria-label="Dismiss"
+          >
+            <XCircle size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3 mb-5">
