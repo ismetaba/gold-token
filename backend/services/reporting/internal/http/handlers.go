@@ -1,9 +1,11 @@
 package http
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 
 	"github.com/ismetaba/gold-token/backend/pkg/httputil"
 	"github.com/ismetaba/gold-token/backend/services/reporting/internal/domain"
+	"github.com/ismetaba/gold-token/backend/services/reporting/internal/generator"
 	"github.com/ismetaba/gold-token/backend/services/reporting/internal/repo"
 )
 
@@ -52,6 +55,7 @@ func (h *Handlers) Routes(env string) chi.Router {
 		r.Get("/compliance", h.compliance)
 		r.Post("/generate", h.generate)
 		r.Get("/{id}/status", h.jobStatus)
+		r.Get("/{id}/download", h.download)
 	})
 
 	return r
@@ -107,6 +111,12 @@ func (h *Handlers) generate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	validTypes := map[string]bool{"transactions": true, "reserves": true, "compliance": true}
+	if !validTypes[req.ReportType] {
+		writeError(w, http.StatusBadRequest, "GOLD.REPORTING.VALIDATION", "report_type must be transactions, reserves, or compliance")
+		return
+	}
+
 	now := time.Now().UTC()
 	job := domain.ReportJob{
 		ID:          uuid.Must(uuid.NewV7()),
@@ -123,10 +133,49 @@ func (h *Handlers) generate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Run generation asynchronously.
+	go h.runJob(job)
+
 	writeJSON(w, http.StatusAccepted, map[string]string{
 		"job_id": job.ID.String(),
 		"status": "pending",
 	})
+}
+
+// runJob executes a report job in the background and updates its status.
+func (h *Handlers) runJob(job domain.ReportJob) {
+	ctx := context.Background()
+
+	running := "running"
+	_ = h.jobs.UpdateStatus(ctx, job.ID, running, "", nil)
+
+	var params struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	if len(job.Parameters) > 0 {
+		_ = json.Unmarshal(job.Parameters, &params)
+	}
+	from, to := parseStoredDateRange(params.From, params.To)
+
+	var genErr error
+	switch job.ReportType {
+	case "transactions":
+		_, genErr = generator.TransactionCSV(ctx, h.queries, from, to)
+	case "reserves":
+		_, genErr = generator.ReserveCSV(ctx, h.queries, from, to)
+	case "compliance":
+		_, genErr = generator.ComplianceCSV(ctx, h.queries)
+	}
+
+	now := time.Now().UTC()
+	if genErr != nil {
+		h.log.Error("async report job failed", zap.String("job_id", job.ID.String()), zap.Error(genErr))
+		_ = h.jobs.UpdateStatus(ctx, job.ID, "failed", genErr.Error(), &now)
+		return
+	}
+	_ = h.jobs.UpdateStatus(ctx, job.ID, "completed", "", &now)
+	h.log.Info("report job completed", zap.String("job_id", job.ID.String()), zap.String("type", job.ReportType))
 }
 
 // GET /reports/{id}/status
@@ -157,6 +206,64 @@ func (h *Handlers) jobStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GET /reports/{id}/download — stream CSV for a completed report job.
+func (h *Handlers) download(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "GOLD.REPORTING.VALIDATION", "invalid id")
+		return
+	}
+
+	job, err := h.jobs.ByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "GOLD.REPORTING.001", "report job not found")
+			return
+		}
+		h.log.Error("get report job for download", zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "GOLD.REPORTING.INTERNAL", "internal error")
+		return
+	}
+	if job.Status != "completed" {
+		writeError(w, http.StatusConflict, "GOLD.REPORTING.002", fmt.Sprintf("report not ready: status=%s", job.Status))
+		return
+	}
+
+	// Generate CSV on the fly using the stored parameters.
+	var params struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	if len(job.Parameters) > 0 {
+		_ = json.Unmarshal(job.Parameters, &params)
+	}
+	from, to := parseStoredDateRange(params.From, params.To)
+
+	var csvData []byte
+	switch job.ReportType {
+	case "transactions":
+		csvData, err = generator.TransactionCSV(r.Context(), h.queries, from, to)
+	case "reserves":
+		csvData, err = generator.ReserveCSV(r.Context(), h.queries, from, to)
+	case "compliance":
+		csvData, err = generator.ComplianceCSV(r.Context(), h.queries)
+	default:
+		writeError(w, http.StatusBadRequest, "GOLD.REPORTING.VALIDATION", "unknown report type")
+		return
+	}
+	if err != nil {
+		h.log.Error("generate csv", zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "GOLD.REPORTING.INTERNAL", "failed to generate csv")
+		return
+	}
+
+	filename := fmt.Sprintf("report_%s_%s.csv", job.ReportType, job.ID.String()[:8])
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(csvData)
+}
+
 // ── middleware ───────────────────────────────────────────────────────────────
 
 func (h *Handlers) requireAdmin(next http.Handler) http.Handler {
@@ -171,6 +278,19 @@ func (h *Handlers) requireAdmin(next http.Handler) http.Handler {
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
+
+// parseStoredDateRange parses date strings stored in job parameters.
+func parseStoredDateRange(fromStr, toStr string) (time.Time, time.Time) {
+	from, err := time.Parse("2006-01-02", fromStr)
+	if err != nil {
+		from = time.Now().AddDate(0, -1, 0)
+	}
+	to, err := time.Parse("2006-01-02", toStr)
+	if err != nil {
+		to = time.Now()
+	}
+	return from, to.Add(24*time.Hour - time.Second)
+}
 
 func parseDateRange(r *http.Request) (time.Time, time.Time) {
 	fromStr := r.URL.Query().Get("from")

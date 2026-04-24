@@ -13,9 +13,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 
+	pkgevents "github.com/ismetaba/gold-token/backend/pkg/events"
 	"github.com/ismetaba/gold-token/backend/pkg/obs"
 
 	"github.com/ismetaba/gold-token/backend/services/reporting/internal/config"
+	repevents "github.com/ismetaba/gold-token/backend/services/reporting/internal/events"
 	reportinghttp "github.com/ismetaba/gold-token/backend/services/reporting/internal/http"
 	"github.com/ismetaba/gold-token/backend/services/reporting/internal/repo"
 )
@@ -38,6 +40,7 @@ func main() {
 }
 
 func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
+	// 1. DB pool (optional in local mode)
 	var pool *pgxpool.Pool
 	if cfg.DatabaseURL != "" {
 		var err error
@@ -47,15 +50,46 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 		}
 		defer pool.Close()
 		log.Info("database connected")
+	} else {
+		log.Warn("DATABASE_URL not set — running without persistence (local stub mode)")
 	}
 
-	var jobs repo.ReportJobRepo
-	var queries repo.QueryRepo
+	// 2. Event bus (optional in local mode)
+	var bus *pkgevents.Bus
+	if cfg.NATSURL != "" {
+		var err error
+		bus, err = pkgevents.NewBus(cfg.NATSURL, log)
+		if err != nil {
+			return err
+		}
+		defer bus.Close()
+		log.Info("NATS connected", zap.String("url", cfg.NATSURL))
+	} else {
+		log.Warn("NATS_URL not set — running without event bus (local stub mode)")
+	}
+
+	// 3. Repos
+	var (
+		jobs    repo.ReportJobRepo
+		queries repo.QueryRepo
+		mat     repo.MaterializedRepo
+	)
 	if pool != nil {
 		jobs = repo.NewPGReportJobRepo(pool)
 		queries = repo.NewPGQueryRepo(pool)
+		mat = repo.NewPGMaterializedRepo(pool)
 	}
 
+	// 4. Event consumer
+	if bus != nil && mat != nil {
+		cons := repevents.NewConsumer(bus, mat, log, cfg.NATSStream)
+		if err := cons.Start(ctx); err != nil {
+			return err
+		}
+		log.Info("event consumer started")
+	}
+
+	// 5. HTTP server
 	handlers := reportinghttp.NewHandlers(jobs, queries, cfg.AdminSecret, log)
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -73,6 +107,7 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 		}
 	}()
 
+	// 6. Graceful shutdown
 	select {
 	case err := <-errCh:
 		return err
