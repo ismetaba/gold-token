@@ -374,6 +374,147 @@ services:
       retries: 5
       start_period: 10s
 
+  vault:
+    build:
+      context: ./backend
+      dockerfile: services/vault/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats-init:
+        condition: service_completed_successfully
+    environment:
+      GOLD_ENV: local
+      GOLD_VAULT_HTTP_ADDR: ":8091"
+      DATABASE_URL: postgres://gold:gold@postgres:5432/gold
+      NATS_URL: nats://nats:4222
+      GOLD_NATS_STREAM: GOLD
+      VAULT_ADMIN_SECRET: local-vault-secret
+    ports:
+      - "8091:8091"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8091/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  fee:
+    build:
+      context: ./backend
+      dockerfile: services/fee/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats-init:
+        condition: service_completed_successfully
+    environment:
+      GOLD_ENV: local
+      GOLD_FEE_HTTP_ADDR: ":8092"
+      DATABASE_URL: postgres://gold:gold@postgres:5432/gold
+      NATS_URL: nats://nats:4222
+      GOLD_NATS_STREAM: GOLD
+      FEE_ADMIN_SECRET: local-fee-secret
+    ports:
+      - "8092:8092"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8092/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  notification:
+    build:
+      context: ./backend
+      dockerfile: services/notification/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats-init:
+        condition: service_completed_successfully
+    environment:
+      GOLD_ENV: local
+      GOLD_NOTIFICATION_HTTP_ADDR: ":8093"
+      DATABASE_URL: postgres://gold:gold@postgres:5432/gold
+      NATS_URL: nats://nats:4222
+      GOLD_NATS_STREAM: GOLD
+      # SMTP_HOST: ""  # set for real email delivery
+      # SENDGRID_API_KEY: ""  # alternative email provider
+    ports:
+      - "8093:8093"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8093/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  admin:
+    build:
+      context: ./backend
+      dockerfile: services/admin/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+      kyc:
+        condition: service_healthy
+    environment:
+      GOLD_ENV: local
+      GOLD_ADMIN_HTTP_ADDR: ":8094"
+      DATABASE_URL: postgres://gold:gold@postgres:5432/gold
+      GOLD_ADMIN_SECRET: local-admin-secret
+      KYC_SERVICE_URL: http://kyc:8087
+      AUTH_SERVICE_URL: http://auth:8082
+      ORDER_SERVICE_URL: http://order:8085
+      TREASURY_SERVICE_URL: http://treasury:8089
+      VAULT_SERVICE_URL: http://vault:8091
+      FEE_SERVICE_URL: http://fee:8092
+      AUDIT_SERVICE_URL: http://audit:8090
+      COMPLIANCE_SERVICE_URL: http://compliance:8086
+      KYC_ADMIN_SECRET: dev-admin-secret
+      AUTH_ADMIN_SECRET: local-auth-secret
+    ports:
+      - "8094:8094"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8094/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  reporting:
+    build:
+      context: ./backend
+      dockerfile: services/reporting/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats-init:
+        condition: service_completed_successfully
+    environment:
+      GOLD_ENV: local
+      GOLD_REPORTING_HTTP_ADDR: ":8095"
+      DATABASE_URL: postgres://gold:gold@postgres:5432/gold
+      NATS_URL: nats://nats:4222
+      GOLD_NATS_STREAM: GOLD
+      REPORTING_ADMIN_SECRET: local-reporting-secret
+    ports:
+      - "8095:8095"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8095/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
   # ── Frontend ─────────────────────────────────────────────────────────────────
 
   frontend:
@@ -396,6 +537,8 @@ services:
       NEXT_PUBLIC_COMPLIANCE_URL: http://localhost:8086
       NEXT_PUBLIC_KYC_URL: http://localhost:8087
       NEXT_PUBLIC_POR_URL: http://localhost:8088
+      NEXT_PUBLIC_TREASURY_URL: http://localhost:8089
+      NEXT_PUBLIC_ADMIN_URL: http://localhost:8094
       NEXT_PUBLIC_CHAIN_RPC_URL: http://localhost:8545
       NEXT_PUBLIC_CHAIN_ID: "31337"
     ports:
