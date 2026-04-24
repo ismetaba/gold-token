@@ -1,0 +1,126 @@
+{
+  "__inputs": [],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" }
+  ],
+  "annotations": { "list": [] },
+  "description": "Gold Token — backend service health overview",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            { "options": { "0": { "color": "red", "index": 1, "text": "DOWN" }, "1": { "color": "green", "index": 0, "text": "UP" } }, "type": "value" }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "title": "Service Status",
+      "type": "stat",
+      "targets": [
+        { "expr": "up{job=~\"auth|mint-burn|price-oracle|wallet|order|compliance|kyc|por\"}", "legendFormat": "{{service}}", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "reqps" },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "id": 2,
+      "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "title": "HTTP Request Rate (req/s)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(http_requests_total[5m])) by (service)", "legendFormat": "{{service}}", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "id": 3,
+      "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "title": "HTTP p95 Latency",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))", "legendFormat": "{{service}}", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "percentunit" },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "id": 4,
+      "options": { "legend": { "calcs": ["mean"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "title": "Error Rate (5xx)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) by (service) / sum(rate(http_requests_total[5m])) by (service)", "legendFormat": "{{service}}", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "bytes" },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "id": 5,
+      "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "title": "Go Heap Usage",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "go_memstats_heap_inuse_bytes{job=~\"auth|mint-burn|price-oracle|wallet|order|compliance|kyc|por\"}", "legendFormat": "{{service}}", "refId": "A" }
+      ]
+    }
+  ],
+  "schemaVersion": 38,
+  "tags": ["gold-token", "services"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Gold Token — Service Health",
+  "uid": "gold-token-services",
+  "version": 1
+}

@@ -1,0 +1,74 @@
+global:
+  # Default timeout for resolving an alert
+  resolve_timeout: 5m
+  # Slack webhook (override with SLACK_WEBHOOK_URL env — see staging docs)
+  slack_api_url: "${SLACK_WEBHOOK_URL}"
+
+templates:
+  - /etc/alertmanager/templates/*.tmpl
+
+route:
+  # Default receiver for all alerts
+  receiver: slack-ops
+  # Group alerts by environment and alertname to reduce noise
+  group_by: [env, alertname, service]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 2h
+
+  routes:
+    # Critical alerts go to ops with shorter repeat
+    - matchers:
+        - severity="critical"
+      receiver: slack-ops
+      repeat_interval: 30m
+
+    # Warning alerts are less urgent
+    - matchers:
+        - severity="warning"
+      receiver: slack-ops
+      repeat_interval: 4h
+
+    # Info / business alerts go to a separate channel
+    - matchers:
+        - severity="info"
+      receiver: slack-biz
+      repeat_interval: 24h
+
+receivers:
+  - name: slack-ops
+    slack_configs:
+      - channel: "#gold-token-ops"
+        send_resolved: true
+        title: |
+          {{ if eq .Status "firing" }}
+            🔴 [{{ .CommonLabels.severity | toUpper }}] {{ .CommonLabels.alertname }}
+          {{ else }}
+            ✅ [RESOLVED] {{ .CommonLabels.alertname }}
+          {{ end }}
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Service:* {{ .Labels.service }}
+          *Env:* {{ .Labels.env }}
+          {{ end }}
+
+  - name: slack-biz
+    slack_configs:
+      - channel: "#gold-token-alerts"
+        send_resolved: false
+        title: "ℹ️ {{ .CommonLabels.alertname }}"
+        text: |
+          {{ range .Alerts }}
+          {{ .Annotations.summary }}
+          {{ .Annotations.description }}
+          {{ end }}
+
+inhibit_rules:
+  # Suppress warning alerts when critical is firing for same service
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: [service]

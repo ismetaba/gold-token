@@ -22,6 +22,7 @@ build/
 .env
 .env.*
 !.env.example
+!.env.staging.example
 
 # ─── IDE / Editor
 .vscode/

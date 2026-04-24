@@ -1,0 +1,85 @@
+groups:
+  - name: gold-token.service-health
+    interval: 30s
+    rules:
+      # Service down (no scrape for 1 minute)
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.service }} is down"
+          description: "{{ $labels.service }} has not been scrapeable for more than 1 minute."
+
+      # High error rate (>5% of requests are 5xx)
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m])) by (service)
+          /
+          sum(rate(http_requests_total[5m])) by (service)
+          > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate on {{ $labels.service }}"
+          description: "{{ $labels.service }} has >5% 5xx error rate over 5 minutes ({{ $value | humanizePercentage }})."
+
+      # High latency (p95 > 2s)
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))
+          > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p95 latency on {{ $labels.service }}"
+          description: "p95 request latency on {{ $labels.service }} is {{ $value | humanizeDuration }} (threshold: 2s)."
+
+  - name: gold-token.infrastructure
+    interval: 60s
+    rules:
+      # PostgreSQL down
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "The postgres exporter reports postgres is unreachable."
+
+      # NATS down
+      - alert: NatsDown
+        expr: up{job="nats"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "NATS is down"
+          description: "NATS server is unreachable."
+
+  - name: gold-token.business
+    interval: 60s
+    rules:
+      # No mint events in last hour (business health check)
+      - alert: NoMintActivity
+        expr: increase(gold_token_mint_total[1h]) == 0
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: "No mint activity in the last hour"
+          description: "Zero GOLD token mint events recorded in the past hour. This may be expected during off-hours."
+
+      # Price oracle stale (no price update in 5 minutes)
+      - alert: PriceOracleStale
+        expr: time() - gold_price_last_update_timestamp_seconds > 300
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "XAU/USD price oracle is stale"
+          description: "The price oracle has not updated XAU/USD price in {{ $value | humanizeDuration }}."

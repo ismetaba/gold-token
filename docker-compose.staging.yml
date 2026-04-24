@@ -1,0 +1,389 @@
+name: gold-token-staging
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Staging environment — uses Sepolia testnet, no local blockchain.
+#
+# Prerequisites:
+#   1. Copy .env.staging.example → .env.staging and fill in all values.
+#   2. sudo apt install docker-compose-plugin (or docker compose v2)
+#   3. docker compose -f docker-compose.staging.yml --env-file .env.staging up -d
+#
+# Images are pulled from GHCR (built by docker.yml on every push to main).
+# Update to a specific SHA: IMAGE_TAG=sha-<sha> docker compose ... up -d
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
+
+x-image-prefix: &image-prefix ghcr.io/ismetaba/gold-token
+
+services:
+
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+
+  postgres:
+    <<: *service-defaults
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: gold
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d gold"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - backend
+
+  nats:
+    <<: *service-defaults
+    image: nats:2.10-alpine
+    command: ["-c", "/etc/nats/nats.conf"]
+    volumes:
+      - ./docker/nats/nats.conf:/etc/nats/nats.conf:ro
+      - nats-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8222/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - backend
+
+  nats-init:
+    image: natsio/nats-box:latest
+    depends_on:
+      nats:
+        condition: service_healthy
+    volumes:
+      - ./docker/nats/stream-init.sh:/stream-init.sh:ro
+    entrypoint: ["sh", "/stream-init.sh"]
+    restart: on-failure
+    networks:
+      - backend
+
+  # ── Backend services ─────────────────────────────────────────────────────────
+
+  auth:
+    <<: *service-defaults
+    image: ghcr.io/ismetaba/gold-token/auth:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats-init:
+        condition: service_completed_successfully
+    environment:
+      GOLD_ENV: staging
+      GOLD_AUTH_HTTP_ADDR: ":8082"
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/gold
+      NATS_URL: nats://nats:4222
+      GOLD_NATS_STREAM: GOLD
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+    secrets:
+      - jwt_private_key
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8082/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - backend
+      - frontend
+
+  mint-burn:
+    <<: *service-defaults
+    image: ghcr.io/ismetaba/gold-token/mint-burn:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats-init:
+        condition: service_completed_successfully
+    environment:
+      GOLD_ENV: staging
+      GOLD_HTTP_ADDR: ":8081"
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/gold
+      NATS_URL: nats://nats:4222
+      GOLD_NATS_STREAM: GOLD
+      CHAIN_RPC_URL: ${CHAIN_RPC_URL}
+      CHAIN_ID: "11155111"
+      MINT_CONTROLLER_ADDR: ${MINT_CONTROLLER_ADDR}
+      BURN_CONTROLLER_ADDR: ${BURN_CONTROLLER_ADDR}
+      SOFTHSM2_CONF: /etc/softhsm2/softhsm2.conf
+    volumes:
+      - softhsm-tokens:/var/lib/softhsm/tokens
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8081/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - backend
+      - frontend
+
+  price-oracle:
+    <<: *service-defaults
+    image: ghcr.io/ismetaba/gold-token/price-oracle:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats-init:
+        condition: service_completed_successfully
+    environment:
+      GOLD_ENV: staging
+      GOLD_PRICE_HTTP_ADDR: ":8083"
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/gold
+      NATS_URL: nats://nats:4222
+      GOLD_NATS_STREAM: GOLD
+      GOLD_PRICE_API_KEY: ${GOLD_PRICE_API_KEY}
+      GOLD_PRICE_REFRESH_INTERVAL: "60s"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8083/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - backend
+      - frontend
+
+  wallet:
+    <<: *service-defaults
+    image: ghcr.io/ismetaba/gold-token/wallet:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats-init:
+        condition: service_completed_successfully
+    environment:
+      GOLD_ENV: staging
+      GOLD_WALLET_HTTP_ADDR: ":8084"
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/gold
+      NATS_URL: nats://nats:4222
+      GOLD_NATS_STREAM: GOLD
+      GOLD_TOKEN_ADDR: ${GOLD_TOKEN_ADDR}
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+    secrets:
+      - jwt_public_key
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8084/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - backend
+      - frontend
+
+  order:
+    <<: *service-defaults
+    image: ghcr.io/ismetaba/gold-token/order:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats-init:
+        condition: service_completed_successfully
+    environment:
+      GOLD_ENV: staging
+      GOLD_ORDER_HTTP_ADDR: ":8085"
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/gold
+      NATS_URL: nats://nats:4222
+      GOLD_NATS_STREAM: GOLD
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+    secrets:
+      - jwt_public_key
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8085/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - backend
+      - frontend
+
+  compliance:
+    <<: *service-defaults
+    image: ghcr.io/ismetaba/gold-token/compliance:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats-init:
+        condition: service_completed_successfully
+    environment:
+      GOLD_ENV: staging
+      GOLD_COMPLIANCE_HTTP_ADDR: ":8086"
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/gold
+      NATS_URL: nats://nats:4222
+      GOLD_NATS_STREAM: GOLD
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8086/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - backend
+      - frontend
+
+  kyc:
+    <<: *service-defaults
+    image: ghcr.io/ismetaba/gold-token/kyc:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats-init:
+        condition: service_completed_successfully
+    environment:
+      GOLD_ENV: staging
+      GOLD_KYC_HTTP_ADDR: ":8087"
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/gold
+      NATS_URL: nats://nats:4222
+      GOLD_NATS_STREAM: GOLD
+      KYC_ADMIN_SECRET: ${KYC_ADMIN_SECRET}
+      KYC_UPLOAD_DIR: /data/kyc-uploads
+    volumes:
+      - kyc-uploads:/data/kyc-uploads
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8087/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - backend
+      - frontend
+
+  por:
+    <<: *service-defaults
+    image: ghcr.io/ismetaba/gold-token/por:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats-init:
+        condition: service_completed_successfully
+    environment:
+      GOLD_ENV: staging
+      GOLD_POR_HTTP_ADDR: ":8088"
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/gold
+      NATS_URL: nats://nats:4222
+      GOLD_NATS_STREAM: GOLD
+      CHAIN_RPC_URL: ${CHAIN_RPC_URL}
+      RESERVE_ORACLE_ADDR: ${RESERVE_ORACLE_ADDR}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8088/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - backend
+      - frontend
+
+  # ── Frontend ─────────────────────────────────────────────────────────────────
+
+  frontend:
+    <<: *service-defaults
+    image: ghcr.io/ismetaba/gold-token/frontend:${IMAGE_TAG:-latest}
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_AUTH_URL: ${STAGING_BASE_URL}:8082
+      NEXT_PUBLIC_MINTBURN_URL: ${STAGING_BASE_URL}:8081
+      NEXT_PUBLIC_PRICE_ORACLE_URL: ${STAGING_BASE_URL}:8083
+      NEXT_PUBLIC_WALLET_URL: ${STAGING_BASE_URL}:8084
+      NEXT_PUBLIC_ORDER_URL: ${STAGING_BASE_URL}:8085
+      NEXT_PUBLIC_COMPLIANCE_URL: ${STAGING_BASE_URL}:8086
+      NEXT_PUBLIC_KYC_URL: ${STAGING_BASE_URL}:8087
+      NEXT_PUBLIC_POR_URL: ${STAGING_BASE_URL}:8088
+      NEXT_PUBLIC_CHAIN_RPC_URL: ${CHAIN_RPC_URL}
+      NEXT_PUBLIC_CHAIN_ID: "11155111"
+    ports:
+      - "3000:3000"
+    networks:
+      - frontend
+
+  # ── Monitoring ───────────────────────────────────────────────────────────────
+
+  prometheus:
+    <<: *service-defaults
+    image: prom/prometheus:v2.51.2
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ./docker/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks:
+      - monitoring
+      - backend
+
+  alertmanager:
+    <<: *service-defaults
+    image: prom/alertmanager:v0.27.0
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./docker/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    networks:
+      - monitoring
+
+  grafana:
+    <<: *service-defaults
+    image: grafana/grafana:10.4.2
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:3001/"
+      GF_FEATURE_TOGGLES_ENABLE: publicDashboards
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./docker/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3001:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - monitoring
+
+# ─────────────────────────────────────────────────────────────────────────────
+networks:
+  backend:
+  frontend:
+  monitoring:
+
+secrets:
+  jwt_private_key:
+    file: ${JWT_PRIVATE_KEY_FILE:-/etc/gold-token/jwt_private_key.pem}
+  jwt_public_key:
+    file: ${JWT_PUBLIC_KEY_FILE:-/etc/gold-token/jwt_public_key.pem}
+
+volumes:
+  postgres-data:
+  nats-data:
+  softhsm-tokens:
+  kyc-uploads:
+  prometheus-data:
+  alertmanager-data:
+  grafana-data:

@@ -1,0 +1,146 @@
+name: Deploy — Staging
+
+on:
+  # Trigger after Docker images are built and pushed on main
+  workflow_run:
+    workflows: ["Docker"]
+    branches: [main]
+    types: [completed]
+
+# Only one staging deploy at a time; cancel if a newer push lands
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Gate: only deploy when Docker workflow passed
+  # ─────────────────────────────────────────────
+  check-upstream:
+    name: Check upstream Docker build
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+      image_tag: ${{ steps.sha.outputs.image_tag }}
+    steps:
+      - name: Extract commit SHA from upstream run
+        id: sha
+        run: |
+          SHA="${{ github.event.workflow_run.head_sha }}"
+          SHORT="${SHA:0:7}"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "image_tag=sha-${SHORT}" >> "$GITHUB_OUTPUT"
+
+  # ─────────────────────────────────────────────
+  # Deploy to staging VPS via SSH
+  # ─────────────────────────────────────────────
+  deploy:
+    name: Deploy to staging
+    runs-on: ubuntu-latest
+    needs: check-upstream
+    environment: staging
+    env:
+      IMAGE_TAG: ${{ needs.check-upstream.outputs.image_tag }}
+      DEPLOY_SHA: ${{ needs.check-upstream.outputs.sha }}
+
+    steps:
+      - name: Checkout repo (for compose files and docker/ config)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.STAGING_SSH_KEY }}
+
+      - name: Add staging host to known_hosts
+        run: |
+          ssh-keyscan -H "${{ secrets.STAGING_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Sync compose files and docker config to server
+        run: |
+          rsync -az --delete \
+            docker-compose.staging.yml \
+            docker/ \
+            deploy@${{ secrets.STAGING_HOST }}:/opt/gold-token/
+
+      - name: Log in to GHCR on staging server
+        run: |
+          ssh deploy@${{ secrets.STAGING_HOST }} \
+            "echo '${{ secrets.GITHUB_TOKEN }}' | \
+             docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
+
+      - name: Pull new images
+        run: |
+          ssh deploy@${{ secrets.STAGING_HOST }} \
+            "cd /opt/gold-token && \
+             IMAGE_TAG='${{ env.IMAGE_TAG }}' \
+             docker compose -f docker-compose.staging.yml \
+               --env-file .env.staging \
+               pull"
+
+      - name: Rolling restart (zero-downtime for stateless services)
+        run: |
+          ssh deploy@${{ secrets.STAGING_HOST }} \
+            "cd /opt/gold-token && \
+             IMAGE_TAG='${{ env.IMAGE_TAG }}' \
+             docker compose -f docker-compose.staging.yml \
+               --env-file .env.staging \
+               up -d --remove-orphans --no-build"
+
+      - name: Wait for health checks
+        run: |
+          ssh deploy@${{ secrets.STAGING_HOST }} << 'REMOTE'
+            set -e
+            echo "Waiting for services to become healthy..."
+            SERVICES="auth mint-burn price-oracle wallet order compliance kyc por"
+            for svc in $SERVICES; do
+              for i in $(seq 1 24); do
+                status=$(docker inspect --format='{{.State.Health.Status}}' \
+                  "$(docker compose -f /opt/gold-token/docker-compose.staging.yml ps -q "$svc" 2>/dev/null || true)" \
+                  2>/dev/null || echo "starting")
+                if [ "$status" = "healthy" ]; then
+                  echo "✓ $svc is healthy"
+                  break
+                fi
+                if [ "$i" = "24" ]; then
+                  echo "✗ $svc failed to become healthy after 120s"
+                  docker compose -f /opt/gold-token/docker-compose.staging.yml logs --tail=50 "$svc"
+                  exit 1
+                fi
+                sleep 5
+              done
+            done
+            echo "All services healthy."
+          REMOTE
+
+      - name: Prune old images on server
+        run: |
+          ssh deploy@${{ secrets.STAGING_HOST }} \
+            "docker image prune -f --filter 'until=24h'"
+
+      - name: Notify Slack on success
+        if: success()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "✅ *Staging deploy succeeded* — `${{ env.IMAGE_TAG }}` — <https://github.com/${{ github.repository }}/commit/${{ env.DEPLOY_SHA }}|${{ env.DEPLOY_SHA }}>"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "🔴 *Staging deploy FAILED* — `${{ env.IMAGE_TAG }}` — <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

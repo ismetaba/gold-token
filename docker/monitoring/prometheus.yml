@@ -1,0 +1,86 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    env: staging
+    project: gold-token
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+rule_files:
+  - "rules/*.yml"
+
+scrape_configs:
+  # ── Self-monitoring ──────────────────────────────────────────────────────────
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # ── Go backend services ──────────────────────────────────────────────────────
+  # Each service exposes /metrics at its HTTP port (standard go/promhttp).
+  # Add GOLD_METRICS_ADDR env var to each service if /metrics is on a separate port.
+
+  - job_name: auth
+    static_configs:
+      - targets: ["auth:8082"]
+        labels:
+          service: auth
+
+  - job_name: mint-burn
+    static_configs:
+      - targets: ["mint-burn:8081"]
+        labels:
+          service: mint-burn
+
+  - job_name: price-oracle
+    static_configs:
+      - targets: ["price-oracle:8083"]
+        labels:
+          service: price-oracle
+
+  - job_name: wallet
+    static_configs:
+      - targets: ["wallet:8084"]
+        labels:
+          service: wallet
+
+  - job_name: order
+    static_configs:
+      - targets: ["order:8085"]
+        labels:
+          service: order
+
+  - job_name: compliance
+    static_configs:
+      - targets: ["compliance:8086"]
+        labels:
+          service: compliance
+
+  - job_name: kyc
+    static_configs:
+      - targets: ["kyc:8087"]
+        labels:
+          service: kyc
+
+  - job_name: por
+    static_configs:
+      - targets: ["por:8088"]
+        labels:
+          service: por
+
+  # ── Infrastructure ───────────────────────────────────────────────────────────
+  - job_name: nats
+    static_configs:
+      - targets: ["nats:8222"]
+        labels:
+          service: nats
+    metrics_path: /metrics
+
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+        labels:
+          service: postgres
