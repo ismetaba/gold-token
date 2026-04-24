@@ -1,12 +1,16 @@
 // Command pord starts the GOLD Proof-of-Reserve Service.
 //
 // Responsibilities:
-//  1. GET  /por/current  — latest reserve attestation (on-chain + DB)
-//  2. GET  /por/history  — paginated attestation history from DB
-//  3. POST /por/attest   — admin: publish new attestation to ReserveOracle
-//  4. GET  /health       — liveness probe
-//  5. Background sync: polls on-chain attestation count and back-fills DB log
-//  6. NATS pub: por.attestation.updated on each new publish
+//  1. GET  /por/current       — latest reserve attestation (on-chain + DB)
+//  2. GET  /por/history       — paginated attestation history from DB
+//  3. GET  /por/ratio         — current reserve ratio
+//  4. GET  /por/transparency  — public transparency data
+//  5. POST /por/attest        — admin: publish new attestation to ReserveOracle
+//  6. POST /por/auditor-verify— auditor: submit verification record
+//  7. GET  /health            — liveness probe
+//  8. Background sync: polls on-chain attestation count and back-fills DB log
+//  9. Auto-attestation worker: scheduled chain sync on configurable cron
+// 10. NATS pub: por.attestation.updated on each new publish
 package main
 
 import (
@@ -30,9 +34,10 @@ import (
 
 	porchain "github.com/ismetaba/gold-token/backend/services/por/internal/chain"
 	"github.com/ismetaba/gold-token/backend/services/por/internal/config"
-	porhttp "github.com/ismetaba/gold-token/backend/services/por/internal/http"
 	"github.com/ismetaba/gold-token/backend/services/por/internal/domain"
+	porhttp "github.com/ismetaba/gold-token/backend/services/por/internal/http"
 	"github.com/ismetaba/gold-token/backend/services/por/internal/repo"
+	"github.com/ismetaba/gold-token/backend/services/por/internal/worker"
 )
 
 func main() {
@@ -115,15 +120,41 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 		}
 	}
 
-	// 6. Repo
+	// 6. Repos
 	var attestRepo repo.AttestationRepo
+	var verificationRepo repo.AuditorVerificationRepo
+	var autoAttestCfgRepo repo.AutoAttestationConfigRepo
 	if pool != nil {
 		attestRepo = repo.NewPGAttestationRepo(pool)
+		verificationRepo = repo.NewPGAuditorVerificationRepo(pool)
+		autoAttestCfgRepo = repo.NewPGAutoAttestationConfigRepo(pool)
 	}
 
 	// 7. Background chain sync (backfills DB log from on-chain history)
+	syncOnceFunc := func(ctx context.Context) error {
+		if oracleReader == nil || attestRepo == nil {
+			return nil
+		}
+		return syncOnce(ctx, oracleReader, attestRepo, bus, log)
+	}
 	if oracleReader != nil && attestRepo != nil {
 		go runChainSync(ctx, oracleReader, attestRepo, bus, cfg.SyncInterval, log)
+	}
+
+	// 7b. Auto-attestation worker (scheduled cron-based sync)
+	if autoAttestCfgRepo != nil {
+		var workerReader worker.OracleReader
+		if oracleReader != nil {
+			workerReader = oracleReader
+		}
+		aaWorker := worker.NewAutoAttestationWorker(
+			autoAttestCfgRepo,
+			workerReader,
+			attestRepo,
+			syncOnceFunc,
+			log,
+		)
+		go aaWorker.Run(ctx)
 	}
 
 	// 8. HTTP server
@@ -142,11 +173,13 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 
 	handlers := porhttp.NewHandlers(
 		attestRepo,
+		verificationRepo,
 		httpReader,
 		httpWriter,
 		httpSupply,
 		bus,
 		cfg.AdminToken,
+		cfg.AuditorAPIKey,
 		log,
 	)
 

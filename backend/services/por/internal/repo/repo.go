@@ -25,6 +25,9 @@ type AttestationRepo interface {
 	// Latest returns the most recently recorded attestation (by timestamp_sec).
 	Latest(ctx context.Context) (domain.Attestation, error)
 
+	// ByID returns the attestation with the given primary key.
+	ByID(ctx context.Context, id uuid.UUID) (domain.Attestation, error)
+
 	// List returns attestation records ordered by timestamp_sec descending.
 	// limit: max rows; offset: pagination offset.
 	List(ctx context.Context, limit, offset int) ([]domain.Attestation, error)
@@ -68,6 +71,14 @@ func (r *pgAttestationRepo) Latest(ctx context.Context) (domain.Attestation, err
 		FROM por.attestation_log
 		ORDER BY timestamp_sec DESC
 		LIMIT 1`)
+}
+
+func (r *pgAttestationRepo) ByID(ctx context.Context, id uuid.UUID) (domain.Attestation, error) {
+	return r.queryOne(ctx, `
+		SELECT id, on_chain_idx, timestamp_sec, as_of_sec, total_grams_wei,
+		       merkle_root, ipfs_cid, auditor, tx_hash, recorded_at
+		FROM por.attestation_log
+		WHERE id = $1`, id)
 }
 
 func (r *pgAttestationRepo) List(ctx context.Context, limit, offset int) ([]domain.Attestation, error) {

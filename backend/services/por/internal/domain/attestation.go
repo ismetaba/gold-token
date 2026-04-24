@@ -20,3 +20,21 @@ type Attestation struct {
 	TxHash        string  // on-chain tx hash (empty for read-synced entries)
 	RecordedAt    time.Time
 }
+
+// AuditorVerification records a third-party auditor's verification of an attestation.
+type AuditorVerification struct {
+	ID               uuid.UUID
+	AttestationID    uuid.UUID
+	AuditorName      string
+	AuditorID        string    // unique identifier for the auditing firm/individual
+	VerificationHash string    // hash the auditor computed over the attestation data
+	VerifiedAt       time.Time
+}
+
+// AutoAttestationConfig is the singleton row that drives the scheduled worker.
+type AutoAttestationConfig struct {
+	ID             uuid.UUID
+	CronExpression string    // standard 5-field cron (e.g. "0 0 * * *")
+	Enabled        bool
+	LastRunAt      *time.Time // nil if never run
+}

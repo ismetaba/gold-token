@@ -37,6 +37,10 @@ type Config struct {
 	// Empty = admin endpoints disabled. In local dev a static token is used.
 	AdminToken string
 
+	// AuditorAPIKey protects POST /por/auditor-verify.
+	// Empty = endpoint disabled.
+	AuditorAPIKey string
+
 	// SyncInterval controls how often the service polls the chain for new
 	// attestations to backfill the DB log.
 	SyncInterval time.Duration
@@ -56,6 +60,7 @@ func FromEnv() (*Config, error) {
 		SoftHSMPin:        os.Getenv("SOFTHSM2_PIN"),
 		SoftHSMKeyLabel:   os.Getenv("SOFTHSM2_KEY_LABEL"),
 		AdminToken:        os.Getenv("POR_ADMIN_TOKEN"),
+		AuditorAPIKey:     os.Getenv("POR_AUDITOR_API_KEY"),
 		SyncInterval:      getenvDuration("POR_SYNC_INTERVAL", 60*time.Second),
 	}
 
