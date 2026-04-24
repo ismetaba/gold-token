@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -14,6 +13,8 @@ import (
 )
 
 var ErrNotFound = errors.New("record not found")
+
+// ── AdminUserRepo ─────────────────────────────────────────────────────────────
 
 type AdminUserRepo interface {
 	ByEmail(ctx context.Context, email string) (domain.AdminUser, error)
@@ -64,4 +65,47 @@ func scanAdminUser(row pgx.Row) (domain.AdminUser, error) {
 	return u, nil
 }
 
-var _ = time.Now
+// ── APIKeyRepo ────────────────────────────────────────────────────────────────
+
+type APIKeyRepo interface {
+	Create(ctx context.Context, k domain.APIKey) error
+	ListByUser(ctx context.Context, adminUserID uuid.UUID) ([]domain.APIKey, error)
+}
+
+type pgAPIKeyRepo struct{ pool *pgxpool.Pool }
+
+func NewPGAPIKeyRepo(pool *pgxpool.Pool) APIKeyRepo { return &pgAPIKeyRepo{pool: pool} }
+
+func (r *pgAPIKeyRepo) Create(ctx context.Context, k domain.APIKey) error {
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO admin.api_keys (id, admin_user_id, key_hash, name, scopes, expires_at, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		k.ID, k.AdminUserID, k.KeyHash, k.Name, k.Scopes, k.ExpiresAt, k.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("insert api key: %w", err)
+	}
+	return nil
+}
+
+func (r *pgAPIKeyRepo) ListByUser(ctx context.Context, adminUserID uuid.UUID) ([]domain.APIKey, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, admin_user_id, key_hash, name, scopes, last_used_at, expires_at, created_at
+		 FROM admin.api_keys WHERE admin_user_id = $1 ORDER BY created_at DESC`, adminUserID)
+	if err != nil {
+		return nil, fmt.Errorf("query api keys: %w", err)
+	}
+	defer rows.Close()
+
+	var keys []domain.APIKey
+	for rows.Next() {
+		var k domain.APIKey
+		if err := rows.Scan(
+			&k.ID, &k.AdminUserID, &k.KeyHash, &k.Name, &k.Scopes,
+			&k.LastUsedAt, &k.ExpiresAt, &k.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan api key: %w", err)
+		}
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
+}

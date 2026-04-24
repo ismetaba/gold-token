@@ -14,10 +14,10 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ismetaba/gold-token/backend/pkg/obs"
-
 	"github.com/ismetaba/gold-token/backend/services/admin/internal/config"
 	adminhttp "github.com/ismetaba/gold-token/backend/services/admin/internal/http"
 	"github.com/ismetaba/gold-token/backend/services/admin/internal/repo"
+	"github.com/ismetaba/gold-token/backend/services/admin/internal/tokens"
 )
 
 func main() {
@@ -38,6 +38,7 @@ func main() {
 }
 
 func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
+	// Database.
 	var pool *pgxpool.Pool
 	if cfg.DatabaseURL != "" {
 		var err error
@@ -50,17 +51,52 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 	}
 
 	var adminUserRepo repo.AdminUserRepo
+	var apiKeyRepo repo.APIKeyRepo
 	if pool != nil {
 		adminUserRepo = repo.NewPGAdminUserRepo(pool)
+		apiKeyRepo = repo.NewPGAPIKeyRepo(pool)
 	}
 
-	handlers := adminhttp.NewHandlers(adminUserRepo, cfg.KYCAdminSecret, log)
+	// Admin JWT manager.
+	tm, err := tokens.NewManager(cfg.JWTPrivateKeyFile, cfg.JWTPublicKeyFile)
+	if err != nil {
+		return err
+	}
+
+	// Build upstream proxies for each routed service.
+	type proxyDef struct {
+		prefix      string
+		serviceURL  string
+		adminSecret string
+	}
+	proxyDefs := []proxyDef{
+		{"/admin/kyc", cfg.KYCServiceURL, cfg.KYCAdminSecret},
+		{"/admin/users", cfg.AuthServiceURL, cfg.AuthAdminSecret},
+		{"/admin/orders", cfg.OrderServiceURL, cfg.OrderAdminSecret},
+		{"/admin/treasury", cfg.TreasuryServiceURL, cfg.TreasuryAdminSecret},
+		{"/admin/vault", cfg.VaultServiceURL, cfg.VaultAdminSecret},
+		{"/admin/fees", cfg.FeeServiceURL, cfg.FeeAdminSecret},
+		{"/admin/audit", cfg.AuditServiceURL, cfg.AuditAdminSecret},
+		{"/admin/compliance", cfg.ComplianceServiceURL, cfg.ComplianceAdminSecret},
+	}
+
+	proxies := make(map[string]http.Handler, len(proxyDefs))
+	for _, pd := range proxyDefs {
+		p, err := adminhttp.NewServiceProxy(pd.serviceURL, pd.prefix, pd.adminSecret, log)
+		if err != nil {
+			return err
+		}
+		proxies[pd.prefix] = p
+		log.Info("proxy registered", zap.String("prefix", pd.prefix), zap.String("target", pd.serviceURL))
+	}
+
+	handlers := adminhttp.NewHandlers(adminUserRepo, apiKeyRepo, tm, cfg.MasterSecret, proxies, log)
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handlers.Routes(cfg.Env),
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
