@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Config holds all runtime configuration for priceoracle.
+// Config holds all runtime configuration for the market data service.
 type Config struct {
 	Env      string // local | dev | staging | prod
 	HTTPAddr string
@@ -16,9 +16,13 @@ type Config struct {
 	NATSURL     string
 	NATSStream  string
 
-	// PriceAPIKey is the goldapi.io access token.
-	// If empty (local mode), a stub provider is used instead.
-	PriceAPIKey string
+	// GoldAPIKey is the goldapi.io access token.
+	// If empty (local mode), the stub provider is used for all sources.
+	GoldAPIKey string
+
+	// MetalsAPIKey is the metals-api.com access token.
+	// Optional: if empty, this provider is skipped.
+	MetalsAPIKey string
 
 	// RefreshInterval controls how often the oracle polls the price feed.
 	// Default: 60s.
@@ -31,7 +35,8 @@ func FromEnv() (*Config, error) {
 		Env:             getenv("GOLD_ENV", "local"),
 		HTTPAddr:        getenv("GOLD_PRICE_HTTP_ADDR", ":8083"),
 		NATSStream:      getenv("GOLD_NATS_STREAM", "GOLD"),
-		PriceAPIKey:     os.Getenv("GOLD_PRICE_API_KEY"),
+		GoldAPIKey:      os.Getenv("GOLD_PRICE_API_KEY"),
+		MetalsAPIKey:    os.Getenv("GOLD_METALS_API_KEY"),
 		RefreshInterval: getenvDuration("GOLD_PRICE_REFRESH_INTERVAL", 60*time.Second),
 	}
 
@@ -42,7 +47,7 @@ func FromEnv() (*Config, error) {
 		for k, v := range map[string]string{
 			"DATABASE_URL":       c.DatabaseURL,
 			"NATS_URL":           c.NATSURL,
-			"GOLD_PRICE_API_KEY": c.PriceAPIKey,
+			"GOLD_PRICE_API_KEY": c.GoldAPIKey,
 		} {
 			if v == "" {
 				return nil, fmt.Errorf("missing required env: %s", k)
