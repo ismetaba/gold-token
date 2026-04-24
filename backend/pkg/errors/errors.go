@@ -33,6 +33,11 @@ const (
 
 	CodeBurnInsufficientBal Code = "GOLD.BURN.001"
 	CodeBurnMinNotMet       Code = "GOLD.BURN.002"
+
+	// Treasury
+	CodeTreasuryAccountNotFound  Code = "GOLD.TREASURY.001"
+	CodeTreasuryInsufficientBal  Code = "GOLD.TREASURY.002"
+	CodeTreasuryReconcileDiscrep Code = "GOLD.TREASURY.003"
 )
 
 // Error is the canonical error type for backend services.
