@@ -59,4 +59,8 @@ const (
 
 	// Price oracle
 	SubjPriceUpdated = "price.updated"
+
+	// Treasury
+	SubjTreasurySettlement = "gold.treasury.settlement.v1"
+	SubjTreasuryReconciled = "gold.treasury.reconciled.v1"
 )
