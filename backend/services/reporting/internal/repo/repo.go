@@ -15,6 +15,14 @@ import (
 
 var ErrNotFound = errors.New("record not found")
 
+type MaterializedRepo interface {
+	// IncrementTransactionCounter upserts a daily transaction counter row.
+	// kind is "mint" or "burn"; amountWei is the wei amount as a decimal string.
+	IncrementTransactionCounter(ctx context.Context, period, kind, amountWei string) error
+	// UpsertReserveSnapshot upserts a daily reserve snapshot.
+	UpsertReserveSnapshot(ctx context.Context, period, goldBalanceWei, tokenSupplyWei string, generatedAt time.Time) error
+}
+
 type ReportJobRepo interface {
 	Create(ctx context.Context, j domain.ReportJob) error
 	ByID(ctx context.Context, id uuid.UUID) (domain.ReportJob, error)
@@ -160,4 +168,76 @@ func (r *pgQueryRepo) ComplianceSummary(ctx context.Context) (domain.ComplianceS
 		 FROM kyc.applications`).Scan(&s.PendingKYC, &s.ApprovedKYC, &s.RejectedKYC)
 
 	return s, nil
+}
+
+// ── Materialized repo ──────────────────────────────────────────────────────
+
+type pgMaterializedRepo struct{ pool *pgxpool.Pool }
+
+func NewPGMaterializedRepo(pool *pgxpool.Pool) MaterializedRepo {
+	return &pgMaterializedRepo{pool: pool}
+}
+
+func (r *pgMaterializedRepo) IncrementTransactionCounter(ctx context.Context, period, kind, amountWei string) error {
+	// Upsert a JSONB row that tracks mint_count, burn_count, mint_volume_wei, burn_volume_wei.
+	// We use a numeric cast and jsonb merge so concurrent events accumulate safely.
+	var mintCountDelta, burnCountDelta int
+	var mintVolumeDelta, burnVolumeDelta string
+	if kind == "mint" {
+		mintCountDelta = 1
+		mintVolumeDelta = amountWei
+		burnVolumeDelta = "0"
+	} else {
+		burnCountDelta = 1
+		burnVolumeDelta = amountWei
+		mintVolumeDelta = "0"
+	}
+
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO reporting.materialized_reports (report_type, period, data, generated_at)
+		VALUES ('transactions', $1,
+			jsonb_build_object(
+				'mint_count',      $2::int,
+				'burn_count',      $3::int,
+				'mint_volume_wei', $4::text,
+				'burn_volume_wei', $5::text
+			), now())
+		ON CONFLICT (report_type, period) DO UPDATE
+		SET data = jsonb_build_object(
+				'mint_count',      COALESCE((reporting.materialized_reports.data->>'mint_count')::bigint,0) + $2::int,
+				'burn_count',      COALESCE((reporting.materialized_reports.data->>'burn_count')::bigint,0) + $3::int,
+				'mint_volume_wei', (COALESCE((reporting.materialized_reports.data->>'mint_volume_wei')::numeric,0) + $4::numeric)::text,
+				'burn_volume_wei', (COALESCE((reporting.materialized_reports.data->>'burn_volume_wei')::numeric,0) + $5::numeric)::text
+			),
+		    generated_at = now()`,
+		period, mintCountDelta, burnCountDelta, mintVolumeDelta, burnVolumeDelta,
+	)
+	if err != nil {
+		return fmt.Errorf("upsert transaction counter: %w", err)
+	}
+	return nil
+}
+
+func (r *pgMaterializedRepo) UpsertReserveSnapshot(ctx context.Context, period, goldBalanceWei, tokenSupplyWei string, generatedAt time.Time) error {
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO reporting.materialized_reports (report_type, period, data, generated_at)
+		VALUES ('reserves', $1,
+			jsonb_build_object(
+				'gold_balance_wei',  $2::text,
+				'token_supply_wei',  $3::text,
+				'attestation_count', 1
+			), $4)
+		ON CONFLICT (report_type, period) DO UPDATE
+		SET data = jsonb_build_object(
+				'gold_balance_wei',  $2::text,
+				'token_supply_wei',  $3::text,
+				'attestation_count', COALESCE((reporting.materialized_reports.data->>'attestation_count')::int, 0) + 1
+			),
+		    generated_at = $4`,
+		period, goldBalanceWei, tokenSupplyWei, generatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("upsert reserve snapshot: %w", err)
+	}
+	return nil
 }
