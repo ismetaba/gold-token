@@ -5,12 +5,14 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import {
-  BarChart2,
+  Activity,
+  AlertTriangle,
   Coins,
   LayoutDashboard,
   Loader2,
   LogOut,
   Menu,
+  Settings,
   Shield,
   Users,
   X,
@@ -21,6 +23,9 @@ const adminNavItems = [
   { href: "/admin/users", label: "Users & KYC", icon: Users },
   { href: "/admin/tokens", label: "Token Ops", icon: Coins },
   { href: "/admin/reserves", label: "Gold Reserves", icon: Shield },
+  { href: "/admin/compliance", label: "Compliance", icon: AlertTriangle },
+  { href: "/admin/system", label: "System Health", icon: Activity },
+  { href: "/admin/fees", label: "Fee Config", icon: Settings },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
