@@ -30,7 +30,7 @@ func NewHandlers(r repo.ComplianceRepo, sc screener.Screener, log *zap.Logger) *
 	return &Handlers{repo: r, screener: sc, log: log}
 }
 
-func (h *Handlers) Routes(env string) chi.Router {
+func (h *Handlers) Routes(env string, admin *AdminHandlers) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -51,6 +51,10 @@ func (h *Handlers) Routes(env string) chi.Router {
 		r.Post("/screen", h.screen)
 		r.Get("/status/{userId}", h.status)
 	})
+
+	if admin != nil {
+		admin.MountAdminRoutes(r)
+	}
 
 	return r
 }

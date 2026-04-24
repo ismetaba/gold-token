@@ -1,0 +1,20 @@
+{
+  "entries": [
+    {
+      "id": "pep-001",
+      "name": "John Doe Politician",
+      "aliases": [],
+      "position": "Former Minister of Finance",
+      "country": "XX",
+      "reason": "senior_official"
+    },
+    {
+      "id": "pep-002",
+      "name": "Jane Smith Leader",
+      "aliases": ["J. S. Leader"],
+      "position": "Head of State",
+      "country": "YY",
+      "reason": "head_of_state"
+    }
+  ]
+}
