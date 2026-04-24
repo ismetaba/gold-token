@@ -45,33 +45,39 @@ type TokenSupplyReader interface {
 
 // Handlers wires together repos, on-chain reader/writer, and event bus.
 type Handlers struct {
-	attestations repo.AttestationRepo
-	reader       OracleReader        // nil in no-chain mode
-	writer       OracleWriter        // nil when admin write disabled
-	supply       TokenSupplyReader   // nil in no-chain mode
-	bus          *pkgevents.Bus      // nil when NATS disabled
-	adminToken   string
-	log          *zap.Logger
+	attestations  repo.AttestationRepo
+	verifications repo.AuditorVerificationRepo  // nil when DB unavailable
+	reader        OracleReader                  // nil in no-chain mode
+	writer        OracleWriter                  // nil when admin write disabled
+	supply        TokenSupplyReader              // nil in no-chain mode
+	bus           *pkgevents.Bus                // nil when NATS disabled
+	adminToken    string
+	auditorAPIKey string // non-empty = POST /por/auditor-verify is enabled
+	log           *zap.Logger
 }
 
 // NewHandlers constructs the handler set.
 func NewHandlers(
 	attestations repo.AttestationRepo,
+	verifications repo.AuditorVerificationRepo,
 	reader OracleReader,
 	writer OracleWriter,
 	supply TokenSupplyReader,
 	bus *pkgevents.Bus,
 	adminToken string,
+	auditorAPIKey string,
 	log *zap.Logger,
 ) *Handlers {
 	return &Handlers{
-		attestations: attestations,
-		reader:       reader,
-		writer:       writer,
-		supply:       supply,
-		bus:          bus,
-		adminToken:   adminToken,
-		log:          log,
+		attestations:  attestations,
+		verifications: verifications,
+		reader:        reader,
+		writer:        writer,
+		supply:        supply,
+		bus:           bus,
+		adminToken:    adminToken,
+		auditorAPIKey: auditorAPIKey,
+		log:           log,
 	}
 }
 
@@ -96,7 +102,10 @@ func (h *Handlers) Routes(env string) chi.Router {
 	r.Route("/por", func(r chi.Router) {
 		r.Get("/current", h.current)
 		r.Get("/history", h.history)
+		r.Get("/ratio", h.ratio)
+		r.Get("/transparency", h.transparency)
 		r.With(h.requireAdmin).Post("/attest", h.attest)
+		r.With(h.requireAuditorKey).Post("/auditor-verify", h.auditorVerify)
 	})
 
 	return r
@@ -119,6 +128,25 @@ func (h *Handlers) requireAdmin(next http.Handler) http.Handler {
 		}
 		if subtle.ConstantTimeCompare([]byte(token), []byte(h.adminToken)) != 1 {
 			writeErr(w, http.StatusUnauthorized, "unauthorized", "valid admin token required")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (h *Handlers) requireAuditorKey(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.auditorAPIKey == "" {
+			writeErr(w, http.StatusServiceUnavailable, "auditor_verify_disabled", "auditor verification endpoint is disabled")
+			return
+		}
+		hdr := r.Header.Get("Authorization")
+		token := strings.TrimPrefix(hdr, "Bearer ")
+		if token == "" {
+			token = r.Header.Get("X-Auditor-Key")
+		}
+		if subtle.ConstantTimeCompare([]byte(token), []byte(h.auditorAPIKey)) != 1 {
+			writeErr(w, http.StatusUnauthorized, "unauthorized", "valid auditor API key required")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -379,6 +407,182 @@ func (h *Handlers) attest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"tx_hash": txHash,
 		"status":  "published",
+	})
+}
+
+// GET /por/ratio — current reserve ratio (on-chain supply vs vault gold)
+func (h *Handlers) ratio(w http.ResponseWriter, r *http.Request) {
+	type ratioResponse struct {
+		TotalOnChainSupplyWei string `json:"total_on_chain_supply_wei"`
+		TotalVaultGramsWei    string `json:"total_vault_grams_wei"`
+		ReserveRatioPct       string `json:"reserve_ratio_pct"`
+		LastAttestationAt     *int64 `json:"last_attestation_at,omitempty"`
+	}
+
+	var gramsWei string
+	var lastAttestationAt *int64
+
+	// Prefer on-chain latest attestation for the gold figure.
+	if h.reader != nil {
+		a, err := h.reader.Latest(r.Context())
+		if err != nil {
+			h.log.Error("ratio: fetch on-chain latest", zap.Error(err))
+			writeErr(w, http.StatusInternalServerError, "chain_error", "could not fetch on-chain attestation")
+			return
+		}
+		if a.TotalGrams != nil && a.TotalGrams.Sign() > 0 {
+			gramsWei = a.TotalGrams.String()
+		}
+		if a.Timestamp > 0 {
+			ts := int64(a.Timestamp)
+			lastAttestationAt = &ts
+		}
+	} else if h.attestations != nil {
+		// Fall back to DB.
+		a, err := h.attestations.Latest(r.Context())
+		if err == nil {
+			gramsWei = a.TotalGramsWei
+			ts := a.TimestampSec
+			lastAttestationAt = &ts
+		}
+	}
+
+	if gramsWei == "" {
+		gramsWei = "0"
+	}
+
+	totalGrams, _ := new(big.Int).SetString(gramsWei, 10)
+	if totalGrams == nil {
+		totalGrams = new(big.Int)
+	}
+
+	supplyWei, ratioPct := h.computeRatio(r.Context(), totalGrams)
+
+	writeJSON(w, http.StatusOK, ratioResponse{
+		TotalOnChainSupplyWei: supplyWei,
+		TotalVaultGramsWei:    gramsWei,
+		ReserveRatioPct:       ratioPct,
+		LastAttestationAt:     lastAttestationAt,
+	})
+}
+
+// GET /por/transparency — public-safe transparency data
+func (h *Handlers) transparency(w http.ResponseWriter, r *http.Request) {
+	type transparencyResponse struct {
+		LatestAttestation interface{}   `json:"latest_attestation"`
+		ReserveRatioPct   string        `json:"reserve_ratio_pct"`
+		History           []interface{} `json:"history"`
+	}
+
+	resp := transparencyResponse{
+		History: []interface{}{},
+	}
+
+	// Latest attestation.
+	if h.reader != nil {
+		a, err := h.reader.Latest(r.Context())
+		if err != nil {
+			h.log.Error("transparency: fetch on-chain latest", zap.Error(err))
+			writeErr(w, http.StatusInternalServerError, "chain_error", "could not fetch on-chain data")
+			return
+		}
+		if a.Timestamp > 0 {
+			totalTokensWei, ratioPct := h.computeRatio(r.Context(), a.TotalGrams)
+			resp.LatestAttestation = attestationResponse(a, totalTokensWei, ratioPct)
+			resp.ReserveRatioPct = ratioPct
+		}
+	} else if h.attestations != nil {
+		a, err := h.attestations.Latest(r.Context())
+		if err == nil {
+			resp.LatestAttestation = dbAttestationResponse(a)
+		}
+	}
+
+	// History (last 10 entries for public view).
+	if h.attestations != nil {
+		records, err := h.attestations.List(r.Context(), 10, 0)
+		if err != nil {
+			h.log.Error("transparency: list attestations", zap.Error(err))
+		} else {
+			for _, a := range records {
+				resp.History = append(resp.History, dbAttestationResponse(a))
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// POST /por/auditor-verify — auditor submits a verification record
+//
+// Request body:
+//
+//	{
+//	  "attestation_id":    "uuid-of-attestation",
+//	  "auditor_name":      "KPMG",
+//	  "auditor_id":        "auditor-firm-unique-id",
+//	  "verification_hash": "sha256-hex-of-verified-attestation-data"
+//	}
+func (h *Handlers) auditorVerify(w http.ResponseWriter, r *http.Request) {
+	if h.verifications == nil {
+		writeErr(w, http.StatusServiceUnavailable, "db_unavailable", "database not configured")
+		return
+	}
+
+	var req struct {
+		AttestationID    string `json:"attestation_id"`
+		AuditorName      string `json:"auditor_name"`
+		AuditorID        string `json:"auditor_id"`
+		VerificationHash string `json:"verification_hash"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+		return
+	}
+
+	if req.AttestationID == "" || req.AuditorName == "" || req.AuditorID == "" || req.VerificationHash == "" {
+		writeErr(w, http.StatusBadRequest, "missing_fields",
+			"attestation_id, auditor_name, auditor_id, verification_hash are required")
+		return
+	}
+
+	attestID, err := uuid.Parse(req.AttestationID)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_attestation_id", "attestation_id must be a valid UUID")
+		return
+	}
+
+	// Verify the referenced attestation exists.
+	if h.attestations != nil {
+		if _, err := h.attestations.ByID(r.Context(), attestID); err != nil {
+			writeErr(w, http.StatusNotFound, "attestation_not_found", "no attestation found with the given id")
+			return
+		}
+	}
+
+	v := domain.AuditorVerification{
+		ID:               uuid.Must(uuid.NewV7()),
+		AttestationID:    attestID,
+		AuditorName:      req.AuditorName,
+		AuditorID:        req.AuditorID,
+		VerificationHash: req.VerificationHash,
+		VerifiedAt:       time.Now().UTC(),
+	}
+	if err := h.verifications.Create(r.Context(), v); err != nil {
+		h.log.Error("create auditor verification", zap.Error(err))
+		writeErr(w, http.StatusInternalServerError, "internal", "could not persist verification")
+		return
+	}
+
+	h.log.Info("auditor verification recorded",
+		zap.String("auditor_id", req.AuditorID),
+		zap.String("auditor_name", req.AuditorName),
+		zap.String("attestation_id", req.AttestationID),
+	)
+
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"id":     v.ID.String(),
+		"status": "recorded",
 	})
 }
 
