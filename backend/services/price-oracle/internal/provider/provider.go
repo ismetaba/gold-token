@@ -3,11 +3,13 @@ package provider
 
 import "context"
 
-// Provider fetches the current XAU/USD price.
-// All implementations must return USD per gram (24-karat gold).
+// Provider fetches the current price for a given currency pair.
+// All implementations return the price in quote-currency units per gram (24-karat gold).
+//
+// Pair format: "XAU/USD", "XAU/TRY", "XAU/EUR", "XAU/CHF"
 type Provider interface {
-	// FetchXAUUSD returns the current gold price in USD per gram.
-	FetchXAUUSD(ctx context.Context) (float64, error)
+	// FetchPrice returns the current gold price per gram in the quote currency.
+	FetchPrice(ctx context.Context, pair string) (float64, error)
 	// Name returns a human-readable identifier for the provider.
 	Name() string
 }
