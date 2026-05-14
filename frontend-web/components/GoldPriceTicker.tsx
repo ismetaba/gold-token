@@ -4,11 +4,10 @@ import { useEffect, useState } from "react";
 import { priceApi } from "@/lib/api-client";
 import { formatTRY, formatUSD } from "@/lib/utils";
 import type { GoldPrice } from "@/lib/types";
-import { TrendingUp } from "lucide-react";
+import { TrendingDown, TrendingUp } from "lucide-react";
 
 export default function GoldPriceTicker() {
   const [price, setPrice] = useState<GoldPrice | null>(null);
-  const [prevPrice, setPrevPrice] = useState<string | null>(null);
   const [direction, setDirection] = useState<"up" | "down" | null>(null);
 
   useEffect(() => {
@@ -19,9 +18,10 @@ export default function GoldPriceTicker() {
           if (prev) {
             const oldVal = parseFloat(prev.pricePerGramTRY);
             const newVal = parseFloat(res.data.price.pricePerGramTRY);
-            setDirection(newVal >= oldVal ? "up" : "down");
-            setPrevPrice(prev.pricePerGramTRY);
-            setTimeout(() => setDirection(null), 2000);
+            if (newVal !== oldVal) {
+              setDirection(newVal > oldVal ? "up" : "down");
+              setTimeout(() => setDirection(null), 2400);
+            }
           }
           return res.data.price;
         });
@@ -36,34 +36,38 @@ export default function GoldPriceTicker() {
   }, []);
 
   if (!price) {
-    return (
-      <div className="h-12 bg-slate-800 animate-pulse rounded-lg" />
-    );
+    return <div className="h-11 w-64 skeleton" />;
   }
 
-  const colorClass =
+  const accent =
     direction === "up"
-      ? "text-green-400"
+      ? "text-emerald-600"
       : direction === "down"
-      ? "text-red-400"
-      : "text-yellow-400";
+      ? "text-rose-600"
+      : "text-brand-600";
+
+  const Icon = direction === "down" ? TrendingDown : TrendingUp;
 
   return (
-    <div className="flex items-center gap-4 bg-slate-800 rounded-lg px-4 py-2.5 text-sm">
-      <div className="flex items-center gap-1.5 text-slate-400">
-        <TrendingUp size={14} />
-        <span>GOLD/gr</span>
+    <div className="inline-flex items-center gap-3 bg-surface-0 border border-surface-3 rounded-2xl px-4 py-2 shadow-xs">
+      <span className="inline-flex items-center gap-1.5 text-ink-2 text-xs uppercase tracking-wider">
+        <span className="relative flex h-2 w-2">
+          <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60 animate-ping" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+        </span>
+        Canlı
+      </span>
+      <span className="h-5 w-px bg-surface-3" />
+      <div className="flex items-baseline gap-1.5">
+        <Icon size={14} className={accent} />
+        <span className={`font-mono font-semibold transition-colors duration-500 ${accent}`}>
+          {formatTRY(price.pricePerGramTRY)}
+        </span>
+        <span className="text-ink-3 text-xs">/gr</span>
       </div>
-      <span className={`font-mono font-semibold transition-colors duration-500 ${colorClass}`}>
-        {formatTRY(price.pricePerGramTRY)}
-      </span>
-      <span className="text-slate-500">·</span>
-      <span className="text-slate-400 font-mono">
+      <span className="h-5 w-px bg-surface-3 hidden sm:block" />
+      <span className="text-ink-2 font-mono text-xs hidden sm:inline">
         {formatUSD(price.pricePerGramUSD)}/gr
-      </span>
-      <span className="text-slate-500">·</span>
-      <span className="text-slate-500 text-xs">
-        {price.source}
       </span>
     </div>
   );

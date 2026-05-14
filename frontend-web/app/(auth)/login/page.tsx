@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { ApiClientError } from "@/lib/api-client";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -36,29 +36,33 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4">
-      <div className="w-full max-w-md">
+    <div className="relative min-h-screen bg-night-0 text-white flex items-center justify-center px-4">
+      <div className="absolute inset-0 bg-mesh-dark" aria-hidden="true" />
+      <div className="absolute inset-0 bg-dot-grid opacity-30" aria-hidden="true" />
+
+      <div className="relative w-full max-w-md anim-rise">
         {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="w-12 h-12 rounded-full bg-yellow-400 flex items-center justify-center mx-auto mb-4">
-            <span className="text-slate-900 font-bold text-xl">G</span>
-          </div>
-          <h1 className="text-2xl font-bold text-white">GOLD Token</h1>
-          <p className="text-slate-400 mt-1">Hesabınıza giriş yapın</p>
-        </div>
+        <Link href="/" className="flex flex-col items-center text-center mb-8">
+          <span className="relative w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-200 to-brand-500 flex items-center justify-center shadow-gold mb-4">
+            <span className="text-night-0 font-bold text-2xl">G</span>
+            <span className="absolute inset-0 rounded-2xl ring-1 ring-inset ring-white/40" />
+          </span>
+          <h1 className="text-2xl font-bold tracking-tight">GOLD Token</h1>
+          <p className="text-white/55 mt-1 text-sm">Hesabınıza giriş yapın</p>
+        </Link>
 
         <form
           onSubmit={handleSubmit}
-          className="bg-slate-800 rounded-2xl p-8 border border-slate-700 space-y-5"
+          className="glass-dark rounded-3xl p-7 sm:p-8 space-y-5 shadow-xl"
         >
           {error && (
-            <div className="bg-red-900/30 border border-red-700 rounded-lg px-4 py-3 text-red-300 text-sm">
+            <div className="rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 px-4 py-3 text-sm">
               {error}
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1.5">
+            <label className="block text-xs uppercase tracking-widest text-white/55 mb-2">
               E-posta
             </label>
             <input
@@ -67,12 +71,13 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="ornek@email.com"
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-transparent transition-all"
+              className="input input-dark"
+              autoComplete="email"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1.5">
+            <label className="block text-xs uppercase tracking-widest text-white/55 mb-2">
               Şifre
             </label>
             <div className="relative">
@@ -82,12 +87,14 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-transparent transition-all pr-10"
+                className="input input-dark pr-10"
+                autoComplete="current-password"
               />
               <button
                 type="button"
                 onClick={() => setShowPw(!showPw)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                aria-label={showPw ? "Şifreyi gizle" : "Şifreyi göster"}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white"
               >
                 {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
@@ -97,26 +104,42 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-yellow-400 text-slate-900 rounded-lg py-3 font-semibold hover:bg-yellow-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+            className="btn btn-primary w-full py-3 text-sm"
           >
-            {loading && <Loader2 size={16} className="animate-spin" />}
-            {loading ? "Giriş yapılıyor..." : "Giriş Yap"}
+            {loading ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                Giriş yapılıyor…
+              </>
+            ) : (
+              <>
+                Giriş Yap
+                <ArrowRight size={16} />
+              </>
+            )}
           </button>
 
-          <div className="text-center text-sm text-slate-400">
-            <span className="text-slate-500 text-xs block mb-1">
+          <div className="text-center text-sm text-white/55">
+            <span className="block text-xs text-white/35 mb-2">
               POC: herhangi bir e-posta, şifre ≥ 4 karakter
             </span>
             Hesabınız yok mu?{" "}
-            <Link href="/register" className="text-yellow-400 hover:text-yellow-300">
+            <Link
+              href="/register"
+              className="text-brand-300 hover:text-brand-200 font-medium transition-colors"
+            >
               Kayıt Olun
             </Link>
           </div>
         </form>
 
         <div className="text-center mt-6">
-          <Link href="/" className="text-slate-500 hover:text-slate-400 text-sm">
-            ← Ana Sayfaya Dön
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 text-white/40 hover:text-white text-sm transition-colors"
+          >
+            <ArrowLeft size={14} />
+            Ana Sayfaya Dön
           </Link>
         </div>
       </div>

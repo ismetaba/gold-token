@@ -3,9 +3,22 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { ordersApi, porApi, priceApi, walletApi } from "@/lib/api-client";
-import { formatGrams, formatTRY, formatUSD, truncateAddress, weiToGrams } from "@/lib/utils";
+import { formatGrams, formatTRY, formatUSD, truncateAddress } from "@/lib/utils";
 import type { GoldPrice, Order, ProofOfReserve, Wallet } from "@/lib/types";
-import { ArrowRight, CheckCircle, Clock, RefreshCw, Shield, TrendingUp, Wallet as WalletIcon } from "lucide-react";
+import {
+  ArrowDownLeft,
+  ArrowRight,
+  ArrowUpRight,
+  CheckCircle,
+  Clock,
+  History as HistoryIcon,
+  RefreshCw,
+  Shield,
+  ShoppingCart,
+  TrendingDown,
+  TrendingUp,
+  Wallet as WalletIcon,
+} from "lucide-react";
 import Link from "next/link";
 import StatusBadge from "@/components/StatusBadge";
 import GoldPriceTicker from "@/components/GoldPriceTicker";
@@ -28,43 +41,45 @@ export default function DashboardPage() {
       ]);
       if (walletRes.status === "fulfilled") setWallet(walletRes.value.data);
       if (priceRes.status === "fulfilled") setPrice(priceRes.value.data.price);
-      if (ordersRes.status === "fulfilled") setRecentOrders(ordersRes.value.data.slice(0, 3));
+      if (ordersRes.status === "fulfilled") setRecentOrders(ordersRes.value.data.slice(0, 4));
       if (porRes.status === "fulfilled") setPor(porRes.value.data);
       setLoading(false);
     };
     load();
   }, []);
 
-  // Compute portfolio value
   const portfolioTRY =
     wallet && price
       ? (parseFloat(wallet.balanceGrams) * parseFloat(price.pricePerGramTRY)).toFixed(2)
       : null;
+  const portfolioUSD =
+    wallet && price
+      ? (parseFloat(wallet.balanceGrams) * parseFloat(price.pricePerGramUSD)).toFixed(2)
+      : null;
 
   if (loading) {
     return (
-      <div className="p-8">
-        <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-slate-200 rounded w-48" />
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-32 bg-slate-200 rounded-xl" />
-            ))}
-          </div>
+      <div className="p-6 md:p-10 max-w-6xl space-y-5">
+        <div className="h-7 w-56 skeleton" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-36 skeleton" />
+          ))}
+        </div>
+        <div className="grid md:grid-cols-2 gap-5">
+          <div className="h-64 skeleton" />
+          <div className="h-64 skeleton" />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="p-6 md:p-8 max-w-6xl">
-      {/* Header */}
-      <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="p-6 md:p-10 max-w-6xl">
+      {/* ─────────── Header ─────────── */}
+      <div className="mb-7 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">
-            Merhaba, {user?.fullName?.split(" ")[0]} 👋
-          </h1>
-          <p className="text-slate-500 mt-0.5">
+          <p className="text-xs uppercase tracking-widest text-ink-3 mb-1">
             {new Date().toLocaleDateString("tr-TR", {
               weekday: "long",
               day: "numeric",
@@ -72,185 +87,281 @@ export default function DashboardPage() {
               year: "numeric",
             })}
           </p>
+          <h1 className="text-3xl font-bold tracking-tight text-ink-0">
+            Merhaba, {user?.fullName?.split(" ")[0] ?? "yatırımcı"}
+            <span aria-hidden="true">  👋</span>
+          </h1>
         </div>
         <GoldPriceTicker />
       </div>
 
-      {/* KYC warning */}
+      {/* ─────────── KYC banner ─────────── */}
       {user?.kycStatus !== "approved" && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-6 flex items-center justify-between">
+        <div className="card border-amber-200 bg-gradient-to-r from-amber-50 to-amber-50/40 p-4 mb-6 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Clock size={18} className="text-yellow-600" />
+            <span className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center">
+              <Clock size={16} className="text-amber-700" />
+            </span>
             <div>
-              <p className="font-medium text-yellow-800">Kimlik doğrulaması gerekli</p>
-              <p className="text-sm text-yellow-600">İşlem yapabilmek için KYC onayını tamamlayın.</p>
+              <p className="font-semibold text-amber-900">Kimlik doğrulaması gerekli</p>
+              <p className="text-sm text-amber-800/80">
+                İşlem yapabilmek için KYC onayını tamamlayın.
+              </p>
             </div>
           </div>
-          <Link href="/kyc" className="bg-yellow-400 text-slate-900 px-4 py-2 rounded-lg text-sm font-medium hover:bg-yellow-300 transition-colors whitespace-nowrap">
-            Tamamla
+          <Link
+            href="/kyc"
+            className="btn btn-primary text-sm whitespace-nowrap"
+          >
+            Tamamla <ArrowRight size={14} />
           </Link>
         </div>
       )}
 
-      {/* Stats */}
+      {/* ─────────── Stat cards ─────────── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         {/* Wallet balance */}
-        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-          <div className="flex items-center gap-2 text-slate-500 text-sm mb-3">
-            <WalletIcon size={14} />
+        <div className="card card-hover p-6">
+          <div className="flex items-center gap-2 text-ink-2 text-xs uppercase tracking-widest mb-4">
+            <WalletIcon size={13} />
             GOLD Bakiyesi
           </div>
-          <div className="text-3xl font-bold text-slate-900 mb-1">
-            {wallet ? formatGrams(wallet.balanceGrams) : "—"} <span className="text-lg font-medium text-slate-500">gram</span>
+          <div className="flex items-baseline gap-1.5 mb-2">
+            <span className="text-4xl font-bold tracking-tight text-ink-0 tabular-nums">
+              {wallet ? formatGrams(wallet.balanceGrams) : "—"}
+            </span>
+            <span className="text-sm font-medium text-ink-2">gram</span>
           </div>
           {wallet && (
-            <p className="text-xs text-slate-500 truncate">
-              {truncateAddress(wallet.address)}
-            </p>
+            <div className="flex items-center gap-2 text-xs text-ink-3">
+              <span className="font-mono">{truncateAddress(wallet.address)}</span>
+            </div>
           )}
         </div>
 
         {/* Portfolio value */}
-        <div className="bg-gradient-to-br from-yellow-400 to-yellow-500 rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center gap-2 text-yellow-900 text-sm mb-3">
-            <TrendingUp size={14} />
-            Portföy Değeri
+        <div className="relative card card-hover p-6 overflow-hidden">
+          <div
+            className="absolute inset-0 opacity-90"
+            style={{
+              backgroundImage:
+                "linear-gradient(135deg, #fde68a 0%, #f59e0b 60%, #b45309 100%)",
+            }}
+            aria-hidden="true"
+          />
+          <div
+            className="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-white/20 blur-2xl"
+            aria-hidden="true"
+          />
+          <div className="relative">
+            <div className="flex items-center gap-2 text-amber-950/80 text-xs uppercase tracking-widest mb-4">
+              <TrendingUp size={13} />
+              Portföy Değeri
+            </div>
+            <div className="text-4xl font-bold tracking-tight text-amber-950 mb-1 tabular-nums">
+              {portfolioTRY ? formatTRY(portfolioTRY) : "—"}
+            </div>
+            {portfolioUSD && (
+              <p className="text-sm text-amber-950/70 tabular-nums">
+                ≈ {formatUSD(portfolioUSD)}
+              </p>
+            )}
           </div>
-          <div className="text-3xl font-bold text-slate-900 mb-1">
-            {portfolioTRY ? formatTRY(portfolioTRY) : "—"}
-          </div>
-          {price && (
-            <p className="text-xs text-yellow-800">
-              ≈ {portfolioTRY ? formatUSD((parseFloat(portfolioTRY) / 33).toFixed(2)) : "—"}
-            </p>
-          )}
         </div>
 
         {/* Gold price */}
-        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-          <div className="flex items-center gap-2 text-slate-500 text-sm mb-3">
-            <RefreshCw size={14} />
-            Altın Fiyatı
+        <div className="card card-hover p-6">
+          <div className="flex items-center justify-between text-ink-2 text-xs uppercase tracking-widest mb-4">
+            <span className="inline-flex items-center gap-2">
+              <RefreshCw size={13} />
+              Altın Fiyatı
+            </span>
+            {price && (
+              <span className="text-[10px] normal-case font-medium text-ink-3 tracking-normal">
+                {price.source}
+              </span>
+            )}
           </div>
           {price ? (
             <>
-              <div className="text-2xl font-bold text-slate-900 mb-1">
+              <div className="text-3xl font-bold tracking-tight text-ink-0 mb-1 tabular-nums">
                 {formatTRY(price.pricePerGramTRY)}
-                <span className="text-sm font-normal text-slate-500"> /gram</span>
+                <span className="text-sm font-medium text-ink-2"> /gram</span>
               </div>
-              <p className="text-xs text-slate-500">
-                {formatUSD(price.pricePerOzUSD)} / ons · {price.source}
+              <p className="text-xs text-ink-3 tabular-nums">
+                {formatUSD(price.pricePerOzUSD)} / ons
               </p>
             </>
           ) : (
-            <div className="text-slate-400">Yükleniyor...</div>
+            <div className="text-ink-3">Yükleniyor…</div>
           )}
         </div>
       </div>
 
-      {/* Quick actions */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      {/* ─────────── Quick actions ─────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-7">
         {[
-          { href: "/buy", label: "Altın Al", color: "bg-green-500 hover:bg-green-600" },
-          { href: "/sell", label: "Altın Sat", color: "bg-blue-500 hover:bg-blue-600" },
-          { href: "/history", label: "İşlemler", color: "bg-slate-600 hover:bg-slate-700" },
-          { href: "/proof-of-reserve", label: "Rezerv Kanıtı", color: "bg-purple-500 hover:bg-purple-600" },
-        ].map(({ href, label, color }) => (
+          {
+            href: "/buy",
+            label: "Altın Al",
+            Icon: ShoppingCart,
+            color: "from-emerald-500 to-emerald-600 shadow-emerald-500/25",
+          },
+          {
+            href: "/sell",
+            label: "Altın Sat",
+            Icon: TrendingDown,
+            color: "from-sky-500 to-sky-600 shadow-sky-500/25",
+          },
+          {
+            href: "/history",
+            label: "İşlemler",
+            Icon: HistoryIcon,
+            color: "from-slate-700 to-slate-800 shadow-slate-700/25",
+          },
+          {
+            href: "/proof-of-reserve",
+            label: "Rezerv Kanıtı",
+            Icon: Shield,
+            color: "from-violet-500 to-violet-600 shadow-violet-500/25",
+          },
+        ].map(({ href, label, Icon, color }) => (
           <Link
             key={href}
             href={href}
-            className={`${color} text-white rounded-xl py-3 px-4 text-sm font-medium text-center transition-colors`}
+            className={`group relative overflow-hidden bg-gradient-to-br ${color} text-white rounded-2xl p-4 shadow-md hover:shadow-xl transition-all hover:-translate-y-0.5`}
           >
-            {label}
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold tracking-tight">{label}</span>
+              <Icon size={16} className="opacity-90" />
+            </div>
+            <ArrowUpRight
+              size={16}
+              className="absolute right-3 bottom-3 opacity-0 group-hover:opacity-90 transition-opacity"
+            />
           </Link>
         ))}
       </div>
 
-      {/* Recent orders + PoR summary */}
-      <div className="grid md:grid-cols-2 gap-6">
+      {/* ─────────── Recent orders + PoR summary ─────────── */}
+      <div className="grid md:grid-cols-2 gap-5">
         {/* Recent orders */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h2 className="font-semibold text-slate-900">Son İşlemler</h2>
-            <Link href="/history" className="text-yellow-600 hover:text-yellow-700 text-sm flex items-center gap-1">
+        <div className="card overflow-hidden">
+          <div className="px-6 py-4 hr-soft flex items-center justify-between">
+            <h2 className="font-semibold tracking-tight text-ink-0">Son İşlemler</h2>
+            <Link
+              href="/history"
+              className="text-brand-600 hover:text-brand-700 text-sm inline-flex items-center gap-1 font-medium"
+            >
               Tümü <ArrowRight size={12} />
             </Link>
           </div>
           {recentOrders.length === 0 ? (
-            <div className="px-6 py-8 text-center text-slate-400 text-sm">
+            <div className="px-6 py-12 text-center text-ink-3 text-sm">
+              <HistoryIcon size={20} className="mx-auto mb-2 opacity-50" />
               Henüz işlem bulunmuyor.
             </div>
           ) : (
-            <div className="divide-y divide-slate-100">
+            <ul className="divide-y divide-black/[0.04]">
               {recentOrders.map((order) => (
-                <div key={order.id} className="px-6 py-3 flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-medium text-slate-800">
-                      {order.type === "buy" ? "Alım" : "Satım"} · {order.amountGrams}g
-                    </div>
-                    <div className="text-xs text-slate-400 mt-0.5">
-                      {new Date(order.createdAt).toLocaleDateString("tr-TR")}
+                <li key={order.id} className="px-6 py-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                        order.type === "buy"
+                          ? "bg-emerald-50 text-emerald-700"
+                          : "bg-sky-50 text-sky-700"
+                      }`}
+                    >
+                      {order.type === "buy" ? (
+                        <ArrowDownLeft size={16} />
+                      ) : (
+                        <ArrowUpRight size={16} />
+                      )}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-ink-0 truncate">
+                        {order.type === "buy" ? "Alım" : "Satım"} ·{" "}
+                        <span className="tabular-nums">{order.amountGrams}g</span>
+                      </div>
+                      <div className="text-xs text-ink-3 mt-0.5">
+                        {new Date(order.createdAt).toLocaleDateString("tr-TR")}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <span className="text-sm font-medium text-slate-700">
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <span className="text-sm font-semibold text-ink-1 tabular-nums">
                       {formatTRY(order.totalTRY)}
                     </span>
                     <StatusBadge status={order.status} />
                   </div>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </div>
 
         {/* PoR summary */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h2 className="font-semibold text-slate-900">Rezerv Özeti</h2>
-            <Link href="/proof-of-reserve" className="text-yellow-600 hover:text-yellow-700 text-sm flex items-center gap-1">
+        <div className="card overflow-hidden">
+          <div className="px-6 py-4 hr-soft flex items-center justify-between">
+            <h2 className="font-semibold tracking-tight text-ink-0">Rezerv Özeti</h2>
+            <Link
+              href="/proof-of-reserve"
+              className="text-brand-600 hover:text-brand-700 text-sm inline-flex items-center gap-1 font-medium"
+            >
               Detaylar <ArrowRight size={12} />
             </Link>
           </div>
           {por ? (
-            <div className="px-6 py-4 space-y-3">
-              <div className="flex items-center gap-2 text-green-600 text-sm font-medium">
-                <CheckCircle size={16} />
-                %100 Rezerv Karşılama — {por.auditor}
+            <div className="px-6 py-5 space-y-4">
+              <div className="inline-flex items-center gap-2 chip border-emerald-200 bg-emerald-50 text-emerald-700">
+                <CheckCircle size={12} />
+                %100 Rezerv Karşılama
               </div>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <p className="text-slate-500">Toplam Rezerv</p>
-                  <p className="font-semibold text-slate-800">
-                    {parseFloat(por.totalGoldGrams).toLocaleString("tr-TR")} gram
-                  </p>
-                </div>
-                <div>
-                  <p className="text-slate-500">Toplam Arz</p>
-                  <p className="font-semibold text-slate-800">
-                    {parseFloat(por.totalTokenSupplyGrams).toLocaleString("tr-TR")} GOLD
-                  </p>
-                </div>
-                <div>
-                  <p className="text-slate-500">Kasa Sayısı</p>
-                  <p className="font-semibold text-slate-800">{por.vaults.length}</p>
-                </div>
-                <div>
-                  <p className="text-slate-500">Son Atestasyon</p>
-                  <p className="font-semibold text-slate-800">
-                    {new Date(por.attestedAt).toLocaleDateString("tr-TR", { month: "long", year: "numeric" })}
-                  </p>
-                </div>
+              <p className="text-sm text-ink-2">Denetleyici: {por.auditor}</p>
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                {[
+                  {
+                    label: "Toplam Rezerv",
+                    value: `${parseFloat(por.totalGoldGrams).toLocaleString("tr-TR")} g`,
+                  },
+                  {
+                    label: "Toplam Arz",
+                    value: `${parseFloat(por.totalTokenSupplyGrams).toLocaleString("tr-TR")} GOLD`,
+                  },
+                  { label: "Kasa Sayısı", value: `${por.vaults.length}` },
+                  {
+                    label: "Son Atestasyon",
+                    value: new Date(por.attestedAt).toLocaleDateString("tr-TR", {
+                      month: "short",
+                      year: "numeric",
+                    }),
+                  },
+                ].map(({ label, value }) => (
+                  <div
+                    key={label}
+                    className="rounded-xl bg-surface-2 px-3 py-2.5"
+                  >
+                    <p className="text-[11px] uppercase tracking-wider text-ink-3 mb-0.5">
+                      {label}
+                    </p>
+                    <p className="text-sm font-semibold text-ink-0 tabular-nums">
+                      {value}
+                    </p>
+                  </div>
+                ))}
               </div>
-              <div className="flex items-center gap-2 text-xs text-slate-400 pt-1">
+              <div className="flex items-center gap-2 text-xs text-ink-3 pt-1">
                 <Shield size={12} />
-                IPFS: {por.ipfsCid.slice(0, 20)}…
+                IPFS:{" "}
+                <span className="font-mono">
+                  {por.ipfsCid.slice(0, 18)}…
+                </span>
               </div>
             </div>
           ) : (
-            <div className="px-6 py-8 text-center text-slate-400 text-sm">
-              Yükleniyor...
-            </div>
+            <div className="px-6 py-12 text-center text-ink-3 text-sm">Yükleniyor…</div>
           )}
         </div>
       </div>

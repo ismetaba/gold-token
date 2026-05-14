@@ -18,8 +18,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <Loader2 size={32} className="animate-spin text-yellow-500" />
+      <div className="min-h-screen flex items-center justify-center bg-surface-1">
+        <div className="flex flex-col items-center gap-3 text-ink-2">
+          <Loader2 size={28} className="animate-spin text-brand-500" />
+          <span className="text-sm">Yükleniyor…</span>
+        </div>
       </div>
     );
   }
@@ -27,10 +30,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (!user) return null;
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex min-h-screen bg-mesh-light">
       <Navbar />
       <main className="flex-1 overflow-auto md:pt-0 pt-14">
-        {children}
+        <div className="anim-rise">{children}</div>
       </main>
     </div>
   );

@@ -53,11 +53,11 @@ export function orderStatusLabel(status: OrderStatus): string {
 
 export function orderStatusColor(status: OrderStatus): string {
   switch (status) {
-    case "COMPLETED": return "text-green-600 bg-green-50";
+    case "COMPLETED": return "text-emerald-700 bg-emerald-50 border-emerald-200";
     case "CANCELLED":
-    case "FAILED_NO_STOCK": return "text-red-600 bg-red-50";
-    case "PAYMENT_PENDING": return "text-yellow-600 bg-yellow-50";
-    default: return "text-blue-600 bg-blue-50";
+    case "FAILED_NO_STOCK": return "text-rose-700 bg-rose-50 border-rose-200";
+    case "PAYMENT_PENDING": return "text-amber-700 bg-amber-50 border-amber-200";
+    default: return "text-sky-700 bg-sky-50 border-sky-200";
   }
 }
 
