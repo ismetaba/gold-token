@@ -124,6 +124,9 @@ contract MintController is
         if (req.to == address(0)) revert Errors.ZeroAddress();
         if (req.amount == 0) revert Errors.ZeroAmount();
         if (req.barSerials.length == 0) revert Errors.EmptyBarList();
+        // Zero allocationId would collide with the default mapping value (no proposal)
+        // and break the single-use guarantee. Reject it explicitly.
+        if (req.allocationId == bytes32(0)) revert Errors.AllocationAlreadyUsed(bytes32(0));
 
         MintStorage storage $ = _s();
         if ($.allocationUsed[req.allocationId]) {
@@ -263,6 +266,27 @@ contract MintController is
         address old = $.feeRecipient;
         $.feeRecipient = newFeeRecipient;
         emit FeeRecipientUpdated(old, newFeeRecipient);
+    }
+
+    /// @notice Update the ReserveOracle reference. Only TREASURY_ROLE.
+    /// @dev Required when migrating to a new oracle deployment (the oracle itself is
+    ///      not upgradeable). Updating mid-flight does not invalidate previously
+    ///      executed proposals but takes effect for subsequent executeMint calls.
+    function setOracle(address newOracle) external onlyRole(Roles.TREASURY_ROLE) {
+        if (newOracle == address(0)) revert Errors.ZeroAddress();
+        MintStorage storage $ = _s();
+        address old = address($.oracle);
+        $.oracle = IReserveOracle(newOracle);
+        emit OracleUpdated(old, newOracle);
+    }
+
+    /// @notice Update the ComplianceRegistry reference. Only TREASURY_ROLE.
+    function setCompliance(address newCompliance) external onlyRole(Roles.TREASURY_ROLE) {
+        if (newCompliance == address(0)) revert Errors.ZeroAddress();
+        MintStorage storage $ = _s();
+        address old = address($.compliance);
+        $.compliance = IComplianceRegistry(newCompliance);
+        emit ComplianceUpdated(old, newCompliance);
     }
 
     /// @notice Configure rate limiting. window=0 or max=0 disables the limit.

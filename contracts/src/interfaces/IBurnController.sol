@@ -34,6 +34,9 @@ interface IBurnController {
     /// @notice Minimum token amount for a PHYSICAL redemption.
     function minPhysicalGrams() external view returns (uint256);
 
+    /// @notice Update the ComplianceRegistry reference (TREASURY_ROLE only).
+    function setCompliance(address newCompliance) external;
+
     /// @notice Operator burn — operational correction (e.g. reversing an erroneous mint).
     ///         Requires BURN_OPERATOR_ROLE + a valid COMPLIANCE_OFFICER_ROLE signature.
     /// @param deadline Signature expiry (Unix timestamp). Reverts if block.timestamp > deadline.
@@ -66,4 +69,5 @@ interface IBurnController {
     event BurnFeeCollected(bytes32 indexed reqId, address indexed from, uint256 fee);
     event OperatorBurn(address indexed from, uint256 amount, bytes32 reasonHash);
     event MinPhysicalGramsUpdated(uint256 newMin);
+    event ComplianceUpdated(address indexed oldCompliance, address indexed newCompliance);
 }

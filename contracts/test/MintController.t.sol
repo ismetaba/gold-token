@@ -335,6 +335,58 @@ contract MintControllerTest is BaseTest {
         assertEq(minter.totalApprovers(), 5, "totalApprovers unchanged on double grant");
     }
 
+    // ──────────────────────────────────────────────────────────────────────
+    // Zero allocationId rejected (LOW)
+    // ──────────────────────────────────────────────────────────────────────
+
+    function test_proposeMint_rejectsZeroAllocationId() public {
+        _setKyc(alice, TR);
+        _publishReserve(1000 * 1e18);
+
+        bytes32[] memory bars = new bytes32[](1);
+        bars[0] = keccak256("bar-x");
+
+        vm.prank(proposer);
+        vm.expectRevert(
+            abi.encodeWithSelector(Errors.AllocationAlreadyUsed.selector, bytes32(0))
+        );
+        minter.proposeMint(_mintRequest(alice, 50 * 1e18, bytes32(0), bars, TR));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Oracle / compliance setters (operational migration support)
+    // ──────────────────────────────────────────────────────────────────────
+
+    function test_setOracle_onlyTreasury() public {
+        address newOracle = makeAddr("newOracle");
+        vm.expectRevert();
+        minter.setOracle(newOracle);
+
+        vm.prank(treasury);
+        minter.setOracle(newOracle);
+    }
+
+    function test_setOracle_rejectsZero() public {
+        vm.prank(treasury);
+        vm.expectRevert(Errors.ZeroAddress.selector);
+        minter.setOracle(address(0));
+    }
+
+    function test_setCompliance_onlyTreasury() public {
+        address newReg = makeAddr("newReg");
+        vm.expectRevert();
+        minter.setCompliance(newReg);
+
+        vm.prank(treasury);
+        minter.setCompliance(newReg);
+    }
+
+    function test_setCompliance_rejectsZero() public {
+        vm.prank(treasury);
+        vm.expectRevert(Errors.ZeroAddress.selector);
+        minter.setCompliance(address(0));
+    }
+
     function test_cancel_byProposer() public {
         _setKyc(alice, TR);
         _publishReserve(1000 * 1e18);

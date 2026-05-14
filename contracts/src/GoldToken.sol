@@ -102,6 +102,16 @@ contract GoldToken is
                 if (reg.isSanctioned(to)) revert Errors.SanctionsHit(to);
                 if (!reg.isKycValid(from)) revert Errors.KycRequired(from);
                 if (!reg.isKycValid(to)) revert Errors.KycRequired(to);
+                {
+                    bytes2 jFrom = reg.getProfile(from).jurisdiction;
+                    if (reg.isJurisdictionBlocked(jFrom)) {
+                        revert Errors.JurisdictionBlocked(jFrom);
+                    }
+                    bytes2 jTo = reg.getProfile(to).jurisdiction;
+                    if (reg.isJurisdictionBlocked(jTo)) {
+                        revert Errors.JurisdictionBlocked(jTo);
+                    }
+                }
                 if (reg.travelRuleRequired(from, to, value)) {
                     revert Errors.TravelRuleRequired(from, to, value);
                 }

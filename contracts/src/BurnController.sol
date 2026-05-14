@@ -185,6 +185,15 @@ contract BurnController is
         emit MinPhysicalGramsUpdated(newMin);
     }
 
+    /// @notice Update the ComplianceRegistry reference. Only TREASURY_ROLE.
+    function setCompliance(address newCompliance) external onlyRole(Roles.TREASURY_ROLE) {
+        if (newCompliance == address(0)) revert Errors.ZeroAddress();
+        BurnStorage storage $ = _s();
+        address old = address($.compliance);
+        $.compliance = IComplianceRegistry(newCompliance);
+        emit ComplianceUpdated(old, newCompliance);
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     // View
     // ──────────────────────────────────────────────────────────────────────

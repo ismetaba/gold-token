@@ -82,4 +82,73 @@ contract ComplianceRegistryTest is BaseTest {
         _setKyc(alice, TR);
         assertTrue(compliance.isKycValid(alice), "valid profile");
     }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // setProfile preserves compliance-officer flags (HIGH)
+    // ──────────────────────────────────────────────────────────────────────
+
+    function test_setProfile_preservesFrozenFlag() public {
+        _setKyc(alice, TR);
+        vm.prank(complianceOfficer);
+        compliance.freeze(alice, keccak256("court-order"));
+        assertTrue(compliance.isFrozen(alice));
+
+        // KYC writer attempts to overwrite the profile with frozen=false
+        _setKyc(alice, TR);
+        assertTrue(
+            compliance.isFrozen(alice),
+            "frozen flag must be preserved against KYC writer overwrite"
+        );
+    }
+
+    function test_setProfile_preservesSanctionedFlag() public {
+        _setKyc(alice, TR);
+        vm.prank(complianceOfficer);
+        compliance.setSanctioned(alice, true);
+        assertTrue(compliance.isSanctioned(alice));
+
+        // KYC writer attempts to overwrite with sanctioned=false
+        _setKyc(alice, TR);
+        assertTrue(
+            compliance.isSanctioned(alice),
+            "sanctioned flag must be preserved against KYC writer overwrite"
+        );
+    }
+
+    function test_setProfile_initialSetupAllowsFalseFlags() public {
+        // For a fresh wallet both flags default to false; KYC writer should be
+        // able to set up a normal profile (no privilege escalation here).
+        _setKyc(alice, TR);
+        assertFalse(compliance.isFrozen(alice));
+        assertFalse(compliance.isSanctioned(alice));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // revokeTravelRuleApproval (MEDIUM)
+    // ──────────────────────────────────────────────────────────────────────
+
+    function test_revokeTravelRuleApproval_clearsApproval() public {
+        uint256 amount = TRAVEL_RULE_THRESHOLD + 1;
+        vm.prank(complianceOfficer);
+        compliance.recordTravelRuleApproval(alice, bob, amount, keccak256("ivms101"));
+        assertFalse(compliance.travelRuleRequired(alice, bob, amount));
+
+        vm.prank(complianceOfficer);
+        compliance.revokeTravelRuleApproval(alice, bob, amount);
+        assertTrue(
+            compliance.travelRuleRequired(alice, bob, amount),
+            "approval must be revoked"
+        );
+    }
+
+    function test_revokeTravelRuleApproval_onlyComplianceOfficer() public {
+        uint256 amount = TRAVEL_RULE_THRESHOLD + 1;
+        vm.prank(complianceOfficer);
+        compliance.recordTravelRuleApproval(alice, bob, amount, keccak256("ivms101"));
+
+        // KYC writer cannot revoke
+        vm.prank(kycWriter);
+        vm.expectRevert();
+        compliance.revokeTravelRuleApproval(alice, bob, amount);
+    }
 }

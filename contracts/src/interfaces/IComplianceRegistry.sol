@@ -49,6 +49,11 @@ interface IComplianceRegistry {
         bytes32 ivms101Hash
     ) external;
 
+    /// @notice Revoke a previously recorded Travel Rule approval.
+    /// @dev Approvals are permanent until revoked; revoke after the transfer settles
+    ///      to prevent reuse of the same VASP message for multiple transfers.
+    function revokeTravelRuleApproval(address from, address to, uint256 amount) external;
+
     // Profile management — KYC_WRITER_ROLE only
     function setProfile(address wallet, WalletProfile calldata profile) external;
     function getProfile(address wallet) external view returns (WalletProfile memory);
@@ -84,5 +89,6 @@ interface IComplianceRegistry {
         uint256 amount,
         bytes32 ivms101Hash
     );
+    event TravelRuleRevoked(address indexed from, address indexed to, uint256 amount);
     event TravelRuleThresholdUpdated(uint256 newThreshold);
 }

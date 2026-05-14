@@ -143,6 +143,19 @@ contract ComplianceRegistry is
         emit TravelRuleRecorded(from, to, amount, ivms101Hash);
     }
 
+    /// @notice Revoke a previously recorded Travel Rule approval.
+    /// @dev Travel Rule approvals are otherwise permanent for the (from,to,amount) tuple.
+    ///      The compliance officer should revoke after the approved transfer settles,
+    ///      to prevent reuse of the same VASP message for multiple transfers.
+    function revokeTravelRuleApproval(address from, address to, uint256 amount)
+        external
+        onlyRole(Roles.COMPLIANCE_OFFICER_ROLE)
+    {
+        bytes32 key = _travelRuleKey(from, to, amount);
+        delete _s().travelRuleApproved[key];
+        emit TravelRuleRevoked(from, to, amount);
+    }
+
     function _travelRuleKey(address from, address to, uint256 amount)
         private
         pure
@@ -155,12 +168,21 @@ contract ComplianceRegistry is
     // Profile management
     // ──────────────────────────────────────────────────────────────────────
 
+    /// @dev The compliance-officer-controlled flags (`frozen`, `sanctioned`) are preserved
+    ///      regardless of the profile struct passed by the KYC writer. Only
+    ///      COMPLIANCE_OFFICER_ROLE can flip those flags (via freeze/unfreeze/setSanctioned).
     function setProfile(address wallet, WalletProfile calldata profile)
         external
         onlyRole(Roles.KYC_WRITER_ROLE)
     {
         if (wallet == address(0)) revert Errors.ZeroAddress();
-        _s().profiles[wallet] = profile;
+        RegStorage storage $ = _s();
+        WalletProfile storage existing = $.profiles[wallet];
+        bool wasFrozen = existing.frozen;
+        bool wasSanctioned = existing.sanctioned;
+        $.profiles[wallet] = profile;
+        $.profiles[wallet].frozen = wasFrozen;
+        $.profiles[wallet].sanctioned = wasSanctioned;
         emit ProfileUpdated(wallet, profile.tier, profile.jurisdiction, profile.kycExpiresAt);
     }
 

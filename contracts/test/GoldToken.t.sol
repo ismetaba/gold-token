@@ -141,6 +141,41 @@ contract GoldTokenTest is BaseTest {
         token.burnFrom(alice, 10 * 1e18);
     }
 
+    function test_transfer_blockedWhenSenderJurisdictionBlocked() public {
+        _setKyc(alice, TR);
+        _setKyc(bob, CH);
+        _publishReserve(1000 * 1e18);
+        bytes32 pid =
+            _proposeAndApproveMint(alice, 100 * 1e18, TR, keccak256("alloc-jb-1"));
+        vm.prank(executor);
+        minter.executeMint(pid);
+
+        // Treasury blocks TR jurisdiction (e.g. sanctions update)
+        vm.prank(treasury);
+        compliance.setJurisdictionBlocked(TR, true);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Errors.JurisdictionBlocked.selector, TR));
+        token.transfer(bob, 5 * 1e18);
+    }
+
+    function test_transfer_blockedWhenRecipientJurisdictionBlocked() public {
+        _setKyc(alice, TR);
+        _setKyc(bob, CH);
+        _publishReserve(1000 * 1e18);
+        bytes32 pid =
+            _proposeAndApproveMint(alice, 100 * 1e18, TR, keccak256("alloc-jb-2"));
+        vm.prank(executor);
+        minter.executeMint(pid);
+
+        vm.prank(treasury);
+        compliance.setJurisdictionBlocked(CH, true);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Errors.JurisdictionBlocked.selector, CH));
+        token.transfer(bob, 5 * 1e18);
+    }
+
     function test_roles_onlyTreasuryCanSetComplianceRegistry() public {
         address newReg = makeAddr("newReg");
         vm.expectRevert();

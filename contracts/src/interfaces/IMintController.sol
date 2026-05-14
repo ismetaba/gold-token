@@ -55,6 +55,8 @@ interface IMintController {
     function setMaxReserveAge(uint256 ageSeconds) external;
     function setRateLimit(uint256 window, uint256 max) external;
     function setFeeRecipient(address newFeeRecipient) external;
+    function setOracle(address newOracle) external;
+    function setCompliance(address newCompliance) external;
 
     // View
     function approvalThreshold() external view returns (uint8);
@@ -85,4 +87,6 @@ interface IMintController {
     event MaxReserveAgeUpdated(uint256 newAgeSeconds);
     event RateLimitUpdated(uint256 window, uint256 max);
     event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
+    event OracleUpdated(address indexed oldOracle, address indexed newOracle);
+    event ComplianceUpdated(address indexed oldCompliance, address indexed newCompliance);
 }
