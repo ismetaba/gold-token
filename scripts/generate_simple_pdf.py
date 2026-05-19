@@ -1,4 +1,4 @@
-"""GOLD Token projesinin basit anlatımlı PDF özetini üretir.
+"""GOLD Token projesinin sohbet diliyle anlatımlı PDF özetini üretir.
 
 Çalıştırma:
     python3 scripts/generate_simple_pdf.py
@@ -13,6 +13,8 @@ from reportlab.lib.enums import TA_JUSTIFY, TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     ListFlowable,
     ListItem,
@@ -26,6 +28,20 @@ from reportlab.platypus import (
 
 OUT = Path(__file__).resolve().parent.parent / "docs" / "GOLD_Token_Basit_Anlatim.pdf"
 
+FONT_DIR = Path("/usr/share/fonts/truetype/dejavu")
+pdfmetrics.registerFont(TTFont("DejaVu", str(FONT_DIR / "DejaVuSans.ttf")))
+pdfmetrics.registerFont(TTFont("DejaVu-Bold", str(FONT_DIR / "DejaVuSans-Bold.ttf")))
+pdfmetrics.registerFont(TTFont("DejaVu-Mono", str(FONT_DIR / "DejaVuSansMono.ttf")))
+
+from reportlab.pdfbase.pdfmetrics import registerFontFamily
+registerFontFamily(
+    "DejaVu",
+    normal="DejaVu",
+    bold="DejaVu-Bold",
+    italic="DejaVu",
+    boldItalic="DejaVu-Bold",
+)
+
 GOLD = HexColor("#B8860B")
 DARK = HexColor("#1f1f1f")
 LIGHT = HexColor("#f5e9c4")
@@ -34,86 +50,44 @@ GREY = HexColor("#555555")
 
 def build_styles():
     base = getSampleStyleSheet()
-    styles = {
+    return {
         "title": ParagraphStyle(
-            "title",
-            parent=base["Title"],
-            fontName="Helvetica-Bold",
-            fontSize=26,
-            textColor=GOLD,
-            alignment=TA_LEFT,
-            spaceAfter=6,
+            "title", parent=base["Title"], fontName="DejaVu-Bold",
+            fontSize=26, textColor=GOLD, alignment=TA_LEFT, spaceAfter=6,
         ),
         "subtitle": ParagraphStyle(
-            "subtitle",
-            parent=base["Normal"],
-            fontName="Helvetica",
-            fontSize=12,
-            textColor=GREY,
-            spaceAfter=20,
+            "subtitle", parent=base["Normal"], fontName="DejaVu",
+            fontSize=12, textColor=GREY, spaceAfter=20, leading=16,
         ),
         "h1": ParagraphStyle(
-            "h1",
-            parent=base["Heading1"],
-            fontName="Helvetica-Bold",
-            fontSize=18,
-            textColor=GOLD,
-            spaceBefore=18,
-            spaceAfter=10,
+            "h1", parent=base["Heading1"], fontName="DejaVu-Bold",
+            fontSize=18, textColor=GOLD, spaceBefore=18, spaceAfter=10,
         ),
         "h2": ParagraphStyle(
-            "h2",
-            parent=base["Heading2"],
-            fontName="Helvetica-Bold",
-            fontSize=13,
-            textColor=DARK,
-            spaceBefore=12,
-            spaceAfter=6,
+            "h2", parent=base["Heading2"], fontName="DejaVu-Bold",
+            fontSize=13, textColor=DARK, spaceBefore=12, spaceAfter=6,
         ),
         "body": ParagraphStyle(
-            "body",
-            parent=base["BodyText"],
-            fontName="Helvetica",
-            fontSize=10.5,
-            leading=15,
-            textColor=DARK,
-            alignment=TA_JUSTIFY,
-            spaceAfter=8,
+            "body", parent=base["BodyText"], fontName="DejaVu",
+            fontSize=10.5, leading=16, textColor=DARK,
+            alignment=TA_JUSTIFY, spaceAfter=8,
         ),
         "bullet": ParagraphStyle(
-            "bullet",
-            parent=base["BodyText"],
-            fontName="Helvetica",
-            fontSize=10.5,
-            leading=14,
-            textColor=DARK,
-            alignment=TA_LEFT,
+            "bullet", parent=base["BodyText"], fontName="DejaVu",
+            fontSize=10.5, leading=15, textColor=DARK, alignment=TA_LEFT,
         ),
         "note": ParagraphStyle(
-            "note",
-            parent=base["BodyText"],
-            fontName="Helvetica-Oblique",
-            fontSize=9.5,
-            leading=13,
-            textColor=GREY,
+            "note", parent=base["BodyText"], fontName="DejaVu",
+            fontSize=9.5, leading=14, textColor=GREY,
         ),
     }
-    return styles
 
 
 def bullets(items, style):
-    flows = [
-        ListItem(Paragraph(text, style), leftIndent=10, value="circle")
-        for text in items
-    ]
+    flows = [ListItem(Paragraph(t, style), leftIndent=10) for t in items]
     return ListFlowable(
-        flows,
-        bulletType="bullet",
-        bulletColor=GOLD,
-        leftIndent=14,
-        bulletFontSize=8,
-        spaceBefore=2,
-        spaceAfter=8,
+        flows, bulletType="bullet", bulletColor=GOLD,
+        leftIndent=14, bulletFontSize=8, spaceBefore=2, spaceAfter=8,
     )
 
 
@@ -122,52 +96,43 @@ def info_box(title, body_paragraphs, styles):
     for p in body_paragraphs:
         inner.append(Paragraph(p, styles["body"]))
     tbl = Table([[inner]], colWidths=[16 * cm])
-    tbl.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, -1), LIGHT),
-                ("BOX", (0, 0), (-1, -1), 0.5, GOLD),
-                ("LEFTPADDING", (0, 0), (-1, -1), 12),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 12),
-                ("TOPPADDING", (0, 0), (-1, -1), 10),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
-            ]
-        )
-    )
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), LIGHT),
+        ("BOX", (0, 0), (-1, -1), 0.5, GOLD),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
     return tbl
 
 
 def styled_table(data, col_widths):
     tbl = Table(data, colWidths=col_widths, repeatRows=1)
-    tbl.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), GOLD),
-                ("TEXTCOLOR", (0, 0), (-1, 0), HexColor("#ffffff")),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 9.5),
-                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [HexColor("#fffaf0"), HexColor("#ffffff")]),
-                ("GRID", (0, 0), (-1, -1), 0.25, HexColor("#dddddd")),
-                ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ]
-        )
-    )
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), GOLD),
+        ("TEXTCOLOR", (0, 0), (-1, 0), HexColor("#ffffff")),
+        ("FONTNAME", (0, 0), (-1, 0), "DejaVu-Bold"),
+        ("FONTNAME", (0, 1), (-1, -1), "DejaVu"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [HexColor("#fffaf0"), HexColor("#ffffff")]),
+        ("GRID", (0, 0), (-1, -1), 0.25, HexColor("#dddddd")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
     return tbl
 
 
 def footer(canvas, doc):
     canvas.saveState()
-    canvas.setFont("Helvetica", 8)
+    canvas.setFont("DejaVu", 8)
     canvas.setFillColor(GREY)
-    canvas.drawString(2 * cm, 1.2 * cm, "GOLD Token — Basit Anlatım v0.1 — GİZLİ")
-    canvas.drawRightString(
-        A4[0] - 2 * cm, 1.2 * cm, f"Sayfa {canvas.getPageNumber()}"
-    )
+    canvas.drawString(2 * cm, 1.2 * cm, "GOLD Token — Basit Anlatım v0.2 — GİZLİ")
+    canvas.drawRightString(A4[0] - 2 * cm, 1.2 * cm, f"Sayfa {canvas.getPageNumber()}")
     canvas.setStrokeColor(GOLD)
     canvas.setLineWidth(0.5)
     canvas.line(2 * cm, 1.6 * cm, A4[0] - 2 * cm, 1.6 * cm)
@@ -177,570 +142,444 @@ def footer(canvas, doc):
 def build_story(styles):
     story = []
 
-    # Kapak
+    # ---------- Kapak ----------
     story.append(Spacer(1, 4 * cm))
     story.append(Paragraph("GOLD Token", styles["title"]))
-    story.append(
-        Paragraph(
-            "Altın destekli dijital token platformu<br/>"
-            "Projenin basit anlatımı: nedir, nasıl çalışır, nasıl yapılır",
-            styles["subtitle"],
-        )
-    )
+    story.append(Paragraph(
+        "Altın destekli dijital token projesi<br/>"
+        "Hiç teknik bilmeyen biri de anlasın diye yazıldı",
+        styles["subtitle"],
+    ))
     story.append(Spacer(1, 1 * cm))
-    story.append(
-        info_box(
-            "Tek cümleyle proje",
-            [
-                "1 GOLD token = 1 gram %99.99 saflıkta gerçek altın. "
-                "Dört yetki alanında (Türkiye, İsviçre, BAE, Liechtenstein) "
-                "lisanslı olarak çalışan, her ay Big Four tarafından denetlenen "
-                "ve denetim sonucunu blokzincire yazan bir tokenize altın sistemi."
-            ],
-            styles,
-        )
-    )
+    story.append(info_box(
+        "İki cümleyle bu proje ne?",
+        [
+            "Bir GOLD = bir gram gerçek altın. Sahip olduğun token'ın "
+            "karşılığı kasada bekliyor, istediğin zaman satarsın, "
+            "transfer edersin, 1 kiloyu geçtiğinde de fiziksel olarak "
+            "teslim alırsın. O kadar."
+        ],
+        styles,
+    ))
     story.append(Spacer(1, 1 * cm))
-    story.append(
-        Paragraph(
-            "Bu doküman teknik olmayan okuyucu için yazıldı. "
-            "Detaylı teknik tasarım için <b>docs/system-design.md</b> dosyasına bakın.",
-            styles["note"],
-        )
-    )
+    story.append(Paragraph(
+        "Not: Burada işin özünü konuşacağız. Detaylı teknik tasarıma "
+        "ihtiyacın olursa repo içindeki <b>docs/system-design.md</b> "
+        "var, tam 972 satır.",
+        styles["note"],
+    ))
     story.append(PageBreak())
 
-    # 1. Proje nedir
-    story.append(Paragraph("1. Proje Nedir?", styles["h1"]))
-    story.append(
-        Paragraph(
-            "GOLD Token, fiziksel altını dijital paraya çeviren bir platformdur. "
-            "Yatırımcı 100 dolar ile 100 dolar tutarında altın alabilir, ama "
-            "bunu fiziksel kasada saklamak yerine cüzdanında bir token olarak "
-            "tutar. Token, gerçek bir altın çubuğa kayıtlıdır — istediği zaman "
-            "satabilir, başkasına transfer edebilir veya (1 kilogramın üstünde) "
-            "fiziksel teslim alabilir.",
-            styles["body"],
-        )
-    )
+    # ---------- 1. Hikaye ----------
+    story.append(Paragraph("1. Önce hikaye: bu proje neden var?", styles["h1"]))
+    story.append(Paragraph(
+        "Diyelim ki elinde bir miktar paran var ve altın almak istiyorsun. "
+        "Bugün ne yapıyorsun? Ya kuyumcuya gidiyorsun, ya bankaya. "
+        "Kuyumcuda makas var, bankada saklama ücreti var, ikisinde de "
+        "fiziksel altını saklamak ayrı bir dert.",
+        styles["body"],
+    ))
+    story.append(Paragraph(
+        "GOLD bu işi şöyle yapıyor: kasada gerçek altın çubuklar duruyor, "
+        "biz bu çubukları senin adına bir miktar 'tahsis' ediyoruz, "
+        "karşılığında telefonundaki cüzdana 'GOLD' adında bir token "
+        "geliyor. Bu token bir kağıt parçası değil, gerçek bir gram "
+        "altına bağlı. Hatta hangi çubuğa bağlı olduğunu seri "
+        "numarasıyla bile görebilirsin.",
+        styles["body"],
+    ))
+    story.append(Paragraph(
+        "Avantajı? Telefondan alıyorsun, telefondan satıyorsun. İstersen "
+        "arkadaşına gönderiyorsun. Gerçekten elinde tutmak istersen "
+        "(en az 1 kilo) kargolatıyorsun. Kasa, sigorta, denetim — "
+        "hepsi arka planda hallediliyor.",
+        styles["body"],
+    ))
 
-    story.append(Paragraph("Neden var?", styles["h2"]))
-    story.append(
-        bullets(
-            [
-                "<b>Erişilebilirlik:</b> Banka kasasına gitmeden, gram bazında altın alıp satabilirsiniz.",
-                "<b>Şeffaflık:</b> Her ay bağımsız denetçi kasaları sayar, sonuç herkesin görebileceği şekilde blokzincire yazılır.",
-                "<b>Güven:</b> Her token gerçek bir altın çubuğa bağlı — kesirli rezerv yok, %100 karşılıklı.",
-                "<b>Küresel kullanım:</b> Türkiye, İsviçre, Dubai ve Avrupa'da yasal — her ülkenin kuralına uyumlu.",
-            ],
-            styles["bullet"],
-        )
-    )
-
-    story.append(Paragraph("Rakiplerden farkı", styles["h2"]))
-    story.append(
-        styled_table(
-            [
-                ["Özellik", "GOLD", "PAXG / XAUT"],
-                ["Asgari miktar", "1 gram", "1 ons (~31 gram)"],
-                ["Yetki alanı sayısı", "4 (TR/CH/AE/LI)", "1"],
-                ["Rafineri", "Kendi rafinerisi (Çorum)", "Üçüncü taraf"],
-                ["Denetim", "Aylık Big Four + Merkle proof", "Aylık üçüncü taraf"],
-                ["Çubuk doğrulama", "Cüzdandan zincire kadar izlenebilir", "Sadece toplam"],
-            ],
-            [5 * cm, 6 * cm, 5.5 * cm],
-        )
-    )
+    story.append(Paragraph("Peki PAXG, XAUT zaten var, sen ne farklısın?", styles["h2"]))
+    story.append(Paragraph(
+        "Üç şey farklı: <b>(1)</b> Onlar 1 ons üzerinden çalışıyor, biz "
+        "1 gram. Yani 100 dolarlık altın almak isteyen Türk öğrenci de "
+        "girebiliyor. <b>(2)</b> Onlar tek ülkede, biz dört ülkede "
+        "lisanslıyız (Türkiye, İsviçre, BAE, Liechtenstein) — bir tanesi "
+        "kapanırsa diğeri ayakta. <b>(3)</b> Onların altını üçüncü taraf "
+        "rafineriden geliyor, bizim Çorum'da kendi rafinerimiz var. "
+        "Yani altın bizim, kasa bizim, token bizim. Baştan sona kontrol.",
+        styles["body"],
+    ))
 
     story.append(PageBreak())
 
-    # 2. Nasıl çalışır
-    story.append(Paragraph("2. Sistem Nasıl Çalışır?", styles["h1"]))
+    # ---------- 2. Kullanıcı ne yaşıyor ----------
+    story.append(Paragraph("2. Kullanıcı tarafından ne yaşanıyor?", styles["h1"]))
+    story.append(Paragraph(
+        "En sade haliyle anlatayım. Sen uygulamaya giriyorsun, ben de "
+        "sistem tarafında ne olduğunu yan yana söyleyeyim:",
+        styles["body"],
+    ))
+    story.append(bullets([
+        "<b>Önce kayıt:</b> E-posta, telefon, sonra kimlik fotoğrafı + selfie. Türkiye'deysen MERNİS'e bakılıyor, İsviçre'deysen pasaport okunuyor. Bu işlem 'KYC' deniyor — yani 'müşterini tanı'. Bir kere yapıyorsun, bitiyor.",
+        "<b>Sonra para yatırma:</b> Banka havalesi, kart, ne kolayına geliyorsa. TL, USD, EUR, AED — hangi arenadansan o para birimi.",
+        "<b>Sipariş veriyorsun:</b> 'Bana 50 gram GOLD ver' diyorsun. Sistem o anki altın fiyatını gösteriyor, onaylıyorsun.",
+        "<b>Arka planda kasaya gidiliyor:</b> Müsait bir çubuk seçiliyor, 50 gramı senin adına işaretleniyor. Bu kayda 'tahsisat' diyoruz.",
+        "<b>5 kişiden 3'ü 'tamam' diyor:</b> Hazine, uyum müdürü, denetçi, teknik, CIO — bunlardan üçü onaylamadan token basılmıyor. Tek kişinin yetkisi yok, kötü niyetli birinin sistemi çalması imkânsız.",
+        "<b>Token cüzdanına geliyor:</b> Ethereum üzerinde mint işlemi yapılıyor, 50 GOLD senin cüzdanına düşüyor. Tüm bu süre 2–3 dakika.",
+        "<b>İstediğini yap:</b> Sat, gönder, beklet, ya da 1 kiloyu aştığında 'fiziksel istiyorum' de — Brink's ile evine kargolatalım.",
+    ], styles["bullet"]))
 
-    story.append(Paragraph("Kullanıcı bakış açısı", styles["h2"]))
-    story.append(
-        Paragraph(
-            "Bir yatırımcının yapacağı işlem altı basit adımda anlatılabilir:",
-            styles["body"],
-        )
-    )
-    story.append(
-        bullets(
-            [
-                "<b>Kayıt + KYC:</b> Kullanıcı uygulamaya giriş yapar, kimliğini doğrular (Türkiye'de TC kimlik, İsviçre'de pasaport, vs.).",
-                "<b>Para yatırma:</b> TL, USD, EUR veya AED ile banka transferi yapar.",
-                "<b>Sipariş:</b> Mesela 50 gram GOLD almak ister. Sistem güncel altın fiyatından siparişi alır.",
-                "<b>Tahsis:</b> Kasadan boş bir altın çubuk bulunur, 50 gramı bu kullanıcıya tahsis edilir.",
-                "<b>Mint (basım):</b> Blokzincirde 50 GOLD token üretilir ve kullanıcının cüzdanına gönderilir.",
-                "<b>Kullanım:</b> Kullanıcı token'ı tutar, başkasına transfer eder, satar veya (1kg+) fiziksel teslim alır.",
-            ],
-            styles["bullet"],
-        )
-    )
-
-    story.append(Paragraph("Sistem bakış açısı (akış)", styles["h2"]))
-    story.append(
-        info_box(
-            "Para → Altın → Token zinciri",
-            [
-                "<b>1. Fiat geldi:</b> Banka, ödeme servisi sağlayıcısı üzerinden para platforma ulaşır.",
-                "<b>2. Kasa tahsisi:</b> Mint/Burn Service müsait altın çubuğa kullanıcının siparişini bağlar.",
-                "<b>3. Çoklu imza onayı:</b> 5 yetkilinin 3'ü mint işlemini onaylar (Hazine, Uyum, Denetçi, Teknik, CIO).",
-                "<b>4. PoR kontrolü:</b> Son denetim 35 günden eski değilse mint izni verilir. Aksi halde bloklanır.",
-                "<b>5. On-chain mint:</b> MintController akıllı sözleşmesi token'ı basıp kullanıcı cüzdanına gönderir.",
-                "<b>6. Kayıt:</b> Tahsisat veritabanına ve event bus'a yazılır; sonraki aylık denetimde Merkle ağacına dahil olur.",
-            ],
-            styles,
-        )
-    )
+    story.append(Paragraph("Satarken ne oluyor?", styles["h2"]))
+    story.append(Paragraph(
+        "Tersini yapıyoruz. Sen 'satıyorum' diyorsun, token cüzdanından "
+        "alınıp 'yakılıyor' (burn). Yakılma kelimesinden korkma — "
+        "Ethereum'da bir token'ı sonsuza kadar yok etmek demek bu. "
+        "Karşılığında kasada o gramlık çubuk tekrar 'boşa çıkıyor' ve "
+        "sana hesabına paran yatıyor.",
+        styles["body"],
+    ))
 
     story.append(PageBreak())
 
-    # 3. Bileşenler
-    story.append(Paragraph("3. Sistem Bileşenleri (Lego Parçaları)", styles["h1"]))
+    # ---------- 3. Sistemin parçaları ----------
+    story.append(Paragraph("3. Sistemin parçaları neler?", styles["h1"]))
+    story.append(Paragraph(
+        "Sistemi 4 katmana bölelim. Her birinin işi farklı ama "
+        "hepsi birbiriyle konuşuyor:",
+        styles["body"],
+    ))
 
-    story.append(
-        Paragraph(
-            "Sistemi dört ana katmanda düşünebiliriz. Her katman bağımsız çalışır "
-            "ama hep birlikte bir altın platformu oluşturur:",
-            styles["body"],
-        )
-    )
+    story.append(Paragraph("A. Blokzincirdeki akıllı sözleşmeler", styles["h2"]))
+    story.append(Paragraph(
+        "Bunlar Ethereum'da çalışan, Solidity diliyle yazılmış kod "
+        "parçaları. Bir kere yazıldıktan sonra kimse müdahale "
+        "edemiyor, herkes okuyabiliyor:",
+        styles["body"],
+    ))
+    story.append(bullets([
+        "<b>GoldToken:</b> Asıl token. Transfer et, bakiye gör, onay ver — temel ERC-20 işleri.",
+        "<b>ComplianceRegistry:</b> Kimin alıp satabileceğini tutan defter. KYC yapmamış birine token gitmez.",
+        "<b>MintController:</b> Yeni token basımı. Çoklu imza olmadan çalışmaz, denetim 35 günden eskiyse de durur.",
+        "<b>BurnController:</b> Token yakımı. Satış ya da fiziksel teslim olduğunda devreye girer.",
+        "<b>ReserveOracle:</b> Aylık denetim sonucunu blokzincire yazan defter. Bir kez yazıldı mı silinmiyor.",
+        "<b>PriceOracle:</b> Chainlink üzerinden anlık altın fiyatı.",
+        "<b>Treasury Safe:</b> Sistemin patronu, ama tek patron değil — 5 kişiden 3'ünün imzası gerek.",
+    ], styles["bullet"]))
 
-    story.append(Paragraph("A. Akıllı Sözleşmeler (blokzincirde)", styles["h2"]))
-    story.append(
-        bullets(
-            [
-                "<b>GoldToken:</b> ERC-20 token; transfer, bakiye, onay işlemleri.",
-                "<b>ComplianceRegistry:</b> Kimin transfer yapabileceğini denetler (KYC, dondurma listesi).",
-                "<b>MintController:</b> Yeni token basımı; çoklu imza ve PoR kontrolü ile.",
-                "<b>BurnController:</b> Token yakımı; satış veya fiziksel teslim için.",
-                "<b>ReserveOracle:</b> Aylık denetim sonucunun değiştirilemez kaydı.",
-                "<b>PriceOracle:</b> Chainlink üzerinden anlık altın fiyatı.",
-                "<b>Treasury Safe (3/5):</b> Sözleşme yöneticisi — sadece çoklu imza ile değişiklik.",
-            ],
-            styles["bullet"],
-        )
-    )
+    story.append(Paragraph("B. Backend (yani sunucu) servisleri", styles["h2"]))
+    story.append(Paragraph(
+        "Blokzincir her şeyi yapamıyor — kimlik doğrulamak, bankayla "
+        "konuşmak, kasaya komut göndermek gibi işler için klasik "
+        "sunucu servisleri lazım. Go diliyle yazılmış mikroservisler "
+        "var, her biri tek bir işi yapıyor:",
+        styles["body"],
+    ))
+    story.append(bullets([
+        "<b>Auth:</b> Giriş, 2 faktörlü doğrulama, oturum yönetimi.",
+        "<b>KYC/AML:</b> Kimliğini doğrular, yaptırım listelerine bakar.",
+        "<b>Wallet:</b> Sana saklamalı cüzdan açar ya da kendi cüzdanını bağlatır.",
+        "<b>Order:</b> Alış/satış/itfa siparişlerini takip eder.",
+        "<b>Mint/Burn:</b> Kasa ile blokzincir arasındaki köprü. En kritik servis.",
+        "<b>Price Oracle:</b> Birden fazla kaynaktan altın fiyatı toplar, manipülasyonu yakalar.",
+        "<b>Proof-of-Reserve:</b> Aylık denetim verisini toplar, Merkle ağacı kurar, IPFS'e atar.",
+        "<b>Compliance Engine:</b> Şüpheli işlemleri tarar, büyük transferlerde 'Travel Rule' uygular.",
+        "<b>Notification + Reporting:</b> E-posta/SMS gönderir, devlete rapor üretir.",
+    ], styles["bullet"]))
 
-    story.append(Paragraph("B. Backend Servisleri (sunucularda)", styles["h2"]))
-    story.append(
-        bullets(
-            [
-                "<b>Auth:</b> Giriş, 2FA, oturum yönetimi.",
-                "<b>KYC/AML:</b> Kimlik doğrulama, yaptırım listesi taraması.",
-                "<b>Wallet:</b> Saklamalı cüzdan (custodial) ve harici cüzdan bağlama.",
-                "<b>Order:</b> Alım/satım/itfa siparişleri.",
-                "<b>Mint/Burn:</b> Kasa tahsisinden zincir üstü mint'e kadar olan saga.",
-                "<b>Price Oracle:</b> Birden fazla kaynaktan altın fiyatı toplama.",
-                "<b>Proof-of-Reserve:</b> Aylık Merkle ağacı + IPFS + on-chain yayın.",
-                "<b>Compliance Engine:</b> Şüpheli işlem kuralları, Travel Rule.",
-                "<b>Notification + Reporting:</b> E-posta/SMS + düzenleyici raporları.",
-            ],
-            styles["bullet"],
-        )
-    )
+    story.append(Paragraph("C. Fiziksel altyapı — kasalar", styles["h2"]))
+    story.append(Paragraph(
+        "Bu kısım çoğu kişinin atladığı yer: altın gerçek bir yerde "
+        "duruyor. Tek kasa yok, dört yerde dağıtık:",
+        styles["body"],
+    ))
+    story.append(styled_table([
+        ["Lokasyon", "Görev", "Arena"],
+        ["Çorum — kendi rafinerimiz", "Üretim + birincil kasa", "TR"],
+        ["İstanbul — BIST Kıymetli Madenler", "Yerel saklama", "TR"],
+        ["Zürih — Brink's / Loomis", "Avrupa kasası", "CH / EU"],
+        ["Dubai — DMCC / Brink's", "Körfez kasası", "AE"],
+    ], [5.5 * cm, 7 * cm, 4 * cm]))
 
-    story.append(Paragraph("C. Fiziksel Altyapı", styles["h2"]))
-    story.append(
-        styled_table(
-            [
-                ["Lokasyon", "Görev", "Yetki Alanı"],
-                ["Çorum — Rafineri", "Altın üretimi ve birincil kasa", "TR"],
-                ["İstanbul — BIST KMP", "Yerel saklama", "TR"],
-                ["Zürih — Brink's / Loomis", "Avrupa kasası", "CH / EU"],
-                ["Dubai — DMCC / Brink's", "Körfez kasası", "AE"],
-            ],
-            [5 * cm, 7.5 * cm, 4 * cm],
-        )
-    )
-
-    story.append(Paragraph("D. İstemci Uygulamaları", styles["h2"]))
-    story.append(
-        bullets(
-            [
-                "<b>Web (Next.js):</b> Tam fonksiyonlu — onboarding, alım/satım, portföy.",
-                "<b>iOS + Android:</b> Mobil odaklı kullanım.",
-                "<b>Kurumsal API:</b> Banka ve piyasa yapıcı entegrasyonu (OpenAPI 3.1).",
-                "<b>verify.gold.example:</b> Kamuya açık — çubuk/cüzdan sorgulama portalı.",
-            ],
-            styles["bullet"],
-        )
-    )
+    story.append(Paragraph("D. Kullanıcının gördüğü kısım", styles["h2"]))
+    story.append(bullets([
+        "<b>Web uygulaması (Next.js):</b> En tam fonksiyonlu kanal — onboarding, alış/satış, portföy, denetim raporları.",
+        "<b>iOS ve Android uygulamaları:</b> Mobil odaklı, native (Swift + Kotlin).",
+        "<b>Kurumsal API:</b> Bankaların ve piyasa yapıcıların kullanması için.",
+        "<b>verify.gold.example:</b> Halka açık doğrulama portalı. Kimse üye olmadan girip 'şu cüzdanın altını gerçekten var mı' diye sorabilir.",
+    ], styles["bullet"]))
 
     story.append(PageBreak())
 
-    # 4. Güven nasıl sağlanır
-    story.append(Paragraph("4. Güven Nasıl Sağlanır?", styles["h1"]))
+    # ---------- 4. Güven ----------
+    story.append(Paragraph("4. Sana neden güveneyim?", styles["h1"]))
+    story.append(Paragraph(
+        "İşin can damarı bu soru. Türkiye'de FTX olduğunu görmüş, "
+        "Celsius olduğunu görmüş bir insan haklı olarak soruyor. "
+        "Üç katmanlı bir cevabımız var:",
+        styles["body"],
+    ))
 
-    story.append(
-        Paragraph(
-            "Tokenize altının en zayıf noktası şudur: token'ın gerçekten karşılığı "
-            "olduğunu kim garanti eder? GOLD üç katmanlı bir doğrulama ile bu "
-            "soruyu cevaplar:",
-            styles["body"],
-        )
-    )
+    story.append(Paragraph("Birinci katman: Tahsisli rezerv — kesirli yok", styles["h2"]))
+    story.append(Paragraph(
+        "Bankalar genelde 'kesirli rezerv' ile çalışır: 100 lira mevduat "
+        "topladığında belki 10 lirayı tutar, gerisini kredi olarak verir. "
+        "Bizde böyle bir şey yok. Sistemde 1.000 token varsa, kasada "
+        "1.000 gram altın var. Hangi çubuğun kime ait olduğu da "
+        "<b>bar_allocations</b> diye bir tabloda kayıtlı.",
+        styles["body"],
+    ))
 
-    story.append(Paragraph("1. Tahsisli rezerv — her token bir çubuğa bağlı", styles["h2"]))
-    story.append(
-        Paragraph(
-            "Klasik bankalar gibi 'kesirli rezerv' yoktur. Sistem 1.000 token "
-            "basmışsa, kasada o kullanıcılara tahsis edilmiş 1.000 gram altın "
-            "vardır — seri numarasıyla. <b>bar_allocations</b> tablosu bu "
-            "bağı tutar: hangi çubuğun ne kadarı kime tahsisli.",
-            styles["body"],
-        )
-    )
+    story.append(Paragraph("İkinci katman: Aylık Big Four denetimi", styles["h2"]))
+    story.append(Paragraph(
+        "Her ayın 1'inde Big Four diye bilinen dört büyük denetim "
+        "firmasından biri (PwC, Deloitte, EY veya KPMG) dört kasayı "
+        "fiziksel olarak sayıyor. Her çubuğun seri numarası, ağırlığı, "
+        "saflığı kayda giriyor.",
+        styles["body"],
+    ))
+    story.append(bullets([
+        "Tüm liste 'Merkle ağacı' diye bir veri yapısına sokuluyor — bunun özelliği şu: tek bir çubuk değişse ağacın kökü değişir, anlarsın.",
+        "Denetçi bu kökü EIP-712 standardıyla imzalıyor (sahte imza atılamaz).",
+        "Tam rapor IPFS'e atılıyor — IPFS'in özelliği şu: bir kez yüklendi mi dosya hep aynı 'adres' altında, değiştiremezsin.",
+        "Özet hash blokzincire yazılıyor — geri dönülmez.",
+        "Denetim 35 günden eski olursa MintController yeni token basmayı reddediyor. Yani 'denetim atlayalım' gibi bir oyun yok.",
+    ], styles["bullet"]))
 
-    story.append(Paragraph("2. Aylık bağımsız denetim", styles["h2"]))
-    story.append(
-        bullets(
-            [
-                "Her ayın 1'inde Big Four firması (PwC, Deloitte, EY veya KPMG) dört kasayı fiziksel olarak sayar.",
-                "Her çubuğun seri no, ağırlık, saflık, rafineri LBMA kimliği kayda alınır.",
-                "Bu liste Merkle ağacına dönüştürülür ve denetçi EIP-712 ile imzalar.",
-                "Tam rapor IPFS'e yüklenir (kalıcı, değiştirilemez); özet hash blokzincire yazılır.",
-                "<b>Sonuç:</b> Sistem 35 günden eski denetimle mint yapamaz — kontrat bloklar.",
-            ],
-            styles["bullet"],
-        )
-    )
-
-    story.append(Paragraph("3. Çubuk bazında kullanıcı doğrulaması", styles["h2"]))
-    story.append(
-        Paragraph(
-            "Kullanıcı <b>verify.gold.example</b> sitesine cüzdan adresini girer. "
-            "Sistem cevaplar: 'Sizin 50 gramınız, Çorum kasasındaki "
-            "TR-2026-00428 seri numaralı çubuktan tahsisli.' Kullanıcı bu bilgiyi "
-            "ReserveOracle akıllı sözleşmesinde Merkle proof ile bağımsız "
-            "doğrulayabilir — platforma güvenmek zorunda değil.",
-            styles["body"],
-        )
-    )
+    story.append(Paragraph("Üçüncü katman: Çubuk bazında doğrulama", styles["h2"]))
+    story.append(Paragraph(
+        "Sen verify.gold.example'a cüzdan adresini yazıyorsun. Sistem "
+        "diyor ki: 'Senin 50 gramın Çorum kasasında, TR-2026-00428 "
+        "seri numaralı çubukta tahsisli.' Hatta sana Merkle proof "
+        "veriyor ki, sen bunu blokzincirdeki ReserveOracle "
+        "sözleşmesinde bağımsız olarak doğrulayabilirsin. Bize "
+        "güvenmek zorunda bile değilsin — matematik söylüyor.",
+        styles["body"],
+    ))
 
     story.append(PageBreak())
 
-    # 5. Nasıl yapılacak - yol haritası
-    story.append(Paragraph("5. Nasıl Yapılacak? — Yol Haritası", styles["h1"]))
-
-    story.append(
-        Paragraph(
-            "Proje altı fazda inşa edilir. Her faz öncekinin üstüne bir "
-            "yetenek ekler; aceleci lansman yerine 'gerçek altın güvenliği' "
-            "öncelikli adım adım büyüme.",
-            styles["body"],
-        )
-    )
+    # ---------- 5. Yol haritası ----------
+    story.append(Paragraph("5. Bunu nasıl yapacağız? — Yol haritası", styles["h1"]))
+    story.append(Paragraph(
+        "İlk günden 'her şeyi yapalım' demek tehlikeli. Onun yerine "
+        "altı faza böldük. Her faz öncekinin üstüne bir özellik "
+        "ekliyor, hiçbir faz aceleye gelmiyor:",
+        styles["body"],
+    ))
 
     phases = [
-        (
-            "Faz 0 — Temel (Ay 0–2)",
-            [
-                "Tech lead + 2 smart contract + 2 backend + 1 SRE işe alımı",
-                "Ethereum testnet'te GoldToken + ComplianceRegistry + MintController iskeleti",
-                "Yerel geliştirme ortamı (docker-compose) + CI/CD kurulumu",
-                "Güvenlik tehdit modeli atölyesi",
-                "KYC ve kasa tedarikçi POC (Sumsub + Fireblocks)",
-            ],
-        ),
-        (
-            "Faz 1 — MVP Türkiye Arenası (Ay 2–6)",
-            [
-                "Türkiye uçtan uca: kayıt → TL yatırma → mint → custodial cüzdan → satış → TL çekme",
-                "Tek kasa: Çorum rafinerisi",
-                "Manuel PoR (aylık tablo + manuel imza)",
-                "Iç alpha test (çalışanlar)",
-                "CMB (Sermaye Piyasası Kurulu) ön başvuru",
-            ],
-        ),
-        (
-            "Faz 2 — PoR Otomasyon + İsviçre (Ay 6–10)",
-            [
-                "Otomatik PoR: ReserveOracle deploy, Merkle ağacı, IPFS yayını",
-                "Zürih kasa entegrasyonu",
-                "USD/EUR/CHF para giriş-çıkış",
-                "FINMA SRO başvurusu",
-                "İlk dış güvenlik denetimi (OpenZeppelin)",
-                "Sepolia testnet üzerinde public beta",
-            ],
-        ),
-        (
-            "Faz 3 — Mainnet Lansmanı (Ay 10–14)",
-            [
-                "Ethereum mainnet dağıtımı + Treasury Safe devri",
-                "İkinci + üçüncü güvenlik denetimi (Trail of Bits, Spearbit)",
-                "10 milyon dolar başlangıç rezervi → ilk mint",
-                "TR + CH arenaları canlı",
-                "1–2 borsa listesi + 1 piyasa yapıcı",
-                "verify.gold.example halka açık",
-            ],
-        ),
-        (
-            "Faz 4 — Küresel Ölçek (Ay 14–24)",
-            [
-                "Dubai VARA lisansı + BAE arenası",
-                "Liechtenstein / MiCA Avrupa pasaportu",
-                "Avalanche + BNB Chain köprüleri (LayerZero OFT)",
-                "DEX likidite havuzları",
-                "Kurumsal API + banka ortaklıkları",
-                "Şeriat uyumlu varyant",
-            ],
-        ),
-        (
-            "Faz 5 — Olgunluk (Ay 24+)",
-            [
-                "Layer 2 (Base / Arbitrum) genişleme",
-                "Tokenize altın ETF köprüsü",
-                "Altın leasing / yield varyantları",
-                "Kimlik doğrulamalı açık finansal API",
-            ],
-        ),
+        ("Faz 0 — Temeli atalım (Ay 0–2)", [
+            "Ekibi topla: tech lead + 2 smart contract + 2 backend + 1 SRE.",
+            "Ethereum testnet'te ilk kontratları kur — GoldToken, ComplianceRegistry, MintController iskeletleri.",
+            "Yerel geliştirme ortamı (docker-compose ile her şey ayakta) ve CI/CD.",
+            "Güvenlik tehdit modeli atölyesi — neyin nereden saldırı yiyebileceğini konuşalım.",
+            "Tedarikçilerle pilot: Sumsub (KYC), Fireblocks (cüzdan saklama).",
+        ]),
+        ("Faz 1 — Türkiye MVP'si (Ay 2–6)", [
+            "Türkiye için baştan sona iş akışı: kayıt → TL yatırma → mint → cüzdan → satış → TL çekme.",
+            "Tek kasa: Çorum.",
+            "PoR manuel — aylık tablo ve manuel imza yetiyor şimdilik.",
+            "Çalışanlar arası alfa testi (önce kendimiz yiyoruz).",
+            "CMB'ye (Sermaye Piyasası Kurulu) ön başvuru.",
+        ]),
+        ("Faz 2 — Denetim otomasyonu + İsviçre (Ay 6–10)", [
+            "Otomatik PoR: ReserveOracle deploy, Merkle ağacı, IPFS.",
+            "Zürih kasası entegre.",
+            "USD, EUR, CHF para giriş-çıkışı.",
+            "FINMA için SRO başvurusu.",
+            "İlk dış güvenlik denetimi (OpenZeppelin).",
+            "Sepolia testnet'te halka açık beta.",
+        ]),
+        ("Faz 3 — Mainnet lansmanı (Ay 10–14)", [
+            "Ethereum mainnet'e gerçek deploy + Treasury Safe devri.",
+            "İkinci ve üçüncü güvenlik denetimleri (Trail of Bits, Spearbit).",
+            "10 milyon dolar başlangıç rezervi → ilk mint.",
+            "TR ve CH arenaları canlı.",
+            "1–2 borsada listeleme + 1 piyasa yapıcı.",
+            "verify.gold.example halka açık.",
+        ]),
+        ("Faz 4 — Küresele açıl (Ay 14–24)", [
+            "Dubai VARA lisansı, BAE arenası.",
+            "Liechtenstein üzerinden MiCA (Avrupa pasaportu).",
+            "Avalanche ve BNB Chain'e LayerZero köprüsü.",
+            "DEX'lerde likidite havuzları.",
+            "Kurumsal API ve banka ortaklıkları.",
+            "Şeriat uyumlu varyant.",
+        ]),
+        ("Faz 5 — Olgun ürün (Ay 24+)", [
+            "Layer 2 (Base, Arbitrum) genişleme.",
+            "Tokenize altın ETF köprüsü.",
+            "Altın leasing / yield ürünleri.",
+            "Açık finansal API (yetkilendirme ile).",
+        ]),
     ]
-
     for title, items in phases:
         story.append(Paragraph(title, styles["h2"]))
         story.append(bullets(items, styles["bullet"]))
 
     story.append(PageBreak())
 
-    # 6. Teknoloji seçimleri
-    story.append(Paragraph("6. Teknoloji Seçimleri (Kısaca)", styles["h1"]))
-
-    story.append(
-        Paragraph(
-            "Her seçim 'olgunluk + denetim havuzu + operasyonel kolaylık' "
-            "ekseninde yapıldı. Hipster teknolojilerden kaçınıldı:",
-            styles["body"],
-        )
-    )
-
-    story.append(
-        styled_table(
-            [
-                ["Katman", "Seçim", "Neden"],
-                ["Akıllı sözleşme dili", "Solidity 0.8.24", "Audit havuzu en geniş"],
-                ["SC framework", "Foundry", "Hızlı test, Rust native"],
-                ["SC kütüphanesi", "OpenZeppelin + Solady", "Denetlenmiş standart"],
-                ["Oracle", "Chainlink", "En olgun PoR desteği"],
-                ["Köprü (Faz 4)", "LayerZero OFT", "Merkezi havuz riski yok"],
-                ["Custody", "Fireblocks (MPC)", "Policy engine + HSM"],
-                ["Backend dili", "Go (servisler) + TypeScript (BFF)", "Operasyon kolay"],
-                ["Veritabanı", "PostgreSQL 16", "ACID + zengin özellik"],
-                ["Event bus", "NATS JetStream", "Hafif, streaming"],
-                ["Web frontend", "Next.js 15 + Tailwind + shadcn", "SEO + hız"],
-                ["Mobile", "Swift + Kotlin + KMP shared", "Native performans"],
-                ["KYC", "Sumsub + Jumio (çift)", "Arena başına en iyi"],
-                ["Cloud", "AWS primary + GCP DR", "Çoklu region"],
-                ["Container", "Kubernetes (EKS)", "Çoklu cloud taşınabilir"],
-            ],
-            [4.5 * cm, 6 * cm, 6 * cm],
-        )
-    )
+    # ---------- 6. Teknoloji ----------
+    story.append(Paragraph("6. Hangi teknolojileri seçtik, niye?", styles["h1"]))
+    story.append(Paragraph(
+        "Bir kuralımız var: 'hipster' teknoloji yok. Her seçim, "
+        "'denetim havuzu geniş mi, operasyonel olarak yorulmaz mıyız' "
+        "diye sorularak yapıldı:",
+        styles["body"],
+    ))
+    story.append(styled_table([
+        ["Katman", "Seçim", "Niye"],
+        ["Akıllı sözleşme dili", "Solidity 0.8.24", "En geniş denetim havuzu"],
+        ["Sözleşme framework", "Foundry", "Hızlı test, modern"],
+        ["Sözleşme kütüphanesi", "OpenZeppelin + Solady", "Çoktan denetlenmiş"],
+        ["Oracle", "Chainlink", "PoR desteği en olgun"],
+        ["Köprü (Faz 4)", "LayerZero OFT", "Merkezi havuz riski yok"],
+        ["Cüzdan saklama", "Fireblocks MPC", "Policy engine + HSM"],
+        ["Backend dili", "Go + TypeScript", "Operasyonel olarak basit"],
+        ["Veritabanı", "PostgreSQL 16", "ACID + zengin özellik"],
+        ["Event bus", "NATS JetStream", "Hafif, streaming"],
+        ["Web frontend", "Next.js 15 + Tailwind", "SEO + hız"],
+        ["Mobil", "Swift + Kotlin + KMP", "Native performans"],
+        ["KYC sağlayıcı", "Sumsub + Jumio", "İki sağlayıcı, yedek var"],
+        ["Bulut", "AWS birincil + GCP yedek", "Çoklu region"],
+        ["Container orkestrasyon", "Kubernetes (EKS)", "Bulut bağımsız"],
+    ], [4.5 * cm, 6 * cm, 6 * cm]))
 
     story.append(PageBreak())
 
-    # 7. Güvenlik
-    story.append(Paragraph("7. Güvenlik Nasıl Korunuyor?", styles["h1"]))
+    # ---------- 7. Güvenlik ----------
+    story.append(Paragraph("7. Güvenlik — kötü senaryolar ve cevaplarımız", styles["h1"]))
+    story.append(Paragraph(
+        "Bir tokenize altın platformunda dört şey aynı anda korunmalı: "
+        "kod, anahtarlar, fiziksel altın, ve uyum. Birini boş bırakırsak "
+        "diğerleri işe yaramaz. İşte tehdit bazlı kısa cevaplar:",
+        styles["body"],
+    ))
+    story.append(styled_table([
+        ["Olası tehdit", "Ne yapıyoruz"],
+        ["Kontratta exploit", "Çoklu imza + PoR kontrolü + formal verification + 3 bağımsız denetim"],
+        ["Kasada iç tehdit", "4-göz kuralı, CCTV, dual control, çubuk başı etiket"],
+        ["Özel anahtar sızar", "AWS CloudHSM L3 + Fireblocks MPC + cold storage"],
+        ["Kullanıcı phishing", "Hardware wallet desteği, EIP-712 domain bağlama"],
+        ["Oracle manipülasyonu", "Chainlink + 3+ kaynak medyan + sapma koruyucu"],
+        ["Reentrancy (kontrat oyunu)", "OpenZeppelin ReentrancyGuard + check-effects-interactions"],
+        ["KYC by-pass (sahte kimlik)", "Biyometrik + belge ağı analizi + çift vendor"],
+        ["API'ye DoS atağı", "CloudFlare + rate limit + WAF"],
+        ["Bir ülkede regülatör baskını", "Diğer üç jurisdiction ayakta, İsviçre yedek"],
+        ["Bağımlılık zinciri (npm/go)", "Pinned deps, SBOM, Snyk, iç artifact registry"],
+    ], [4.5 * cm, 12 * cm]))
 
-    story.append(
-        Paragraph(
-            "Tokenize altında güvenlik = kontrat güvenliği + anahtar güvenliği "
-            "+ fiziksel güvenlik + uyum. Hepsinin aynı anda çalışması gerekiyor.",
-            styles["body"],
-        )
-    )
-
-    story.append(
-        styled_table(
-            [
-                ["Tehdit", "Karşı Önlem"],
-                ["Akıllı sözleşme exploit", "Çoklu imza + PoR gated + formal verification + 3 bağımsız denetim"],
-                ["Kasa iç tehdidi", "4-göz kuralı, CCTV, dual control, çubuk-başı tag, aylık denetim"],
-                ["Özel anahtar sızıntısı", "AWS CloudHSM L3 + Fireblocks MPC + cold storage"],
-                ["Kullanıcı phishing", "Hardware wallet desteği, EIP-712 domain bağlama"],
-                ["Oracle manipülasyonu", "Chainlink + 3+ beslemeden medyan + sapma koruyucu"],
-                ["Reentrancy saldırısı", "OpenZeppelin ReentrancyGuard + checks-effects-interactions"],
-                ["KYC by-pass (sybil)", "Biyometrik + belge ağı analizi + çift vendor"],
-                ["API DoS", "CloudFlare + rate limit + WAF"],
-                ["Regülatör baskını", "Çoklu yetki alanı + İsviçre yedek"],
-                ["Tedarik zinciri (npm/go)", "Pinned deps, SBOM, Snyk, iç artifact registry"],
-            ],
-            [4.5 * cm, 12 * cm],
-        )
-    )
-
-    story.append(Paragraph("Operasyonel kurallar", styles["h2"]))
-    story.append(
-        bullets(
-            [
-                "<b>Sıcak cüzdan:</b> Toplam arzın en fazla %1'i. Günlük operasyon için.",
-                "<b>Soğuk cüzdan:</b> Kalan tüm bakiye. Çok imzalı, coğrafi dağıtılmış, geofencing alarmlı.",
-                "<b>Treasury Safe imzacıları:</b> 5 kişi, 3 farklı lokasyon, 2 farklı jurisdiction. Hepsi Ledger hardware wallet.",
-                "<b>Anahtar rotasyonu:</b> Yıllık + her güvenlik olayından sonra.",
-                "<b>Bug bounty:</b> Immunefi üzerinden — kritik 500K USD, yüksek 100K USD.",
-                "<b>İncident response:</b> RTO 1 saat, RPO 5 dakika.",
-            ],
-            styles["bullet"],
-        )
-    )
+    story.append(Paragraph("Pratikte ne anlama geliyor bunlar?", styles["h2"]))
+    story.append(bullets([
+        "<b>Sıcak cüzdan = az miktar:</b> Toplam altının en fazla %1'i. Günlük işlem için.",
+        "<b>Soğuk cüzdan = ana hazine:</b> Çok imzalı, farklı şehirlerde, geofencing alarmlı.",
+        "<b>Treasury Safe imzacıları:</b> 5 kişi, 3 farklı şehir, 2 farklı ülke. Hepsi Ledger donanım cüzdanı.",
+        "<b>Anahtar rotasyonu:</b> Yılda bir, her olaydan sonra zorunlu.",
+        "<b>Bug bounty:</b> Immunefi üzerinden — kritik bug 500 bin USD, yüksek 100 bin USD.",
+        "<b>Incident response:</b> Sistem 1 saat içinde geri ayağa kalkmalı (RTO), en fazla 5 dakika veri kaybı (RPO).",
+    ], styles["bullet"]))
 
     story.append(PageBreak())
 
-    # 8. Kim ne yapacak
-    story.append(Paragraph("8. Kim Ne Yapacak? — Başlangıç Ekibi", styles["h1"]))
-
-    story.append(
-        Paragraph(
-            "Faz 0–1 için önerilen başlangıç takımı (toplam 13 kişi):",
-            styles["body"],
-        )
-    )
-
-    story.append(
-        styled_table(
-            [
-                ["Rol", "Adet", "Görev"],
-                ["Tech Lead / Chief Architect", "1", "Genel mimari ve teknik yön"],
-                ["Smart Contract Engineer", "2", "Solidity + Foundry, kontrat tasarımı ve testleri"],
-                ["Backend Engineer (Go)", "3", "Mikroservisler, mint/burn, compliance"],
-                ["Frontend Lead (Next.js)", "1", "Web uygulaması ve verify portalı"],
-                ["Mobile Engineer", "2", "iOS (Swift) + Android (Kotlin)"],
-                ["SRE / DevOps", "1", "Kubernetes, CI/CD, gözlemlenebilirlik"],
-                ["Security Engineer", "1", "Tehdit modeli, audit hazırlığı, key management"],
-                ["QA / Test Engineer", "1", "E2E testleri, regresyon"],
-                ["Product Manager", "1", "Sipariş akışları, KYC akışları"],
-                ["Compliance Tech Liaison", "1", "Hukuk + ürün arasındaki köprü"],
-            ],
-            [6 * cm, 1.5 * cm, 9 * cm],
-        )
-    )
-
-    story.append(
-        Paragraph(
-            "Faz 2'den sonra eklenecek: KYC ops, müşteri destek, business "
-            "development, data analyst, üç ek arenanın yerel temsilcileri.",
-            styles["body"],
-        )
-    )
+    # ---------- 8. Ekip ----------
+    story.append(Paragraph("8. Kim ne yapacak? — Başlangıç ekibi", styles["h1"]))
+    story.append(Paragraph(
+        "Faz 0 ve 1 için toplam 13 kişi yetiyor. Şişirilmemiş, herkesin "
+        "net bir görevi olan bir takım:",
+        styles["body"],
+    ))
+    story.append(styled_table([
+        ["Rol", "Adet", "Ne yapıyor"],
+        ["Tech Lead / Chief Architect", "1", "Genel mimari, teknik kararlar"],
+        ["Smart Contract Engineer", "2", "Solidity + Foundry, kontrat tasarımı ve testi"],
+        ["Backend Engineer (Go)", "3", "Mikroservisler, mint/burn, compliance"],
+        ["Frontend Lead (Next.js)", "1", "Web uygulaması + verify portalı"],
+        ["Mobile Engineer", "2", "iOS (Swift) + Android (Kotlin)"],
+        ["SRE / DevOps", "1", "Kubernetes, CI/CD, gözlemlenebilirlik"],
+        ["Security Engineer", "1", "Tehdit modeli, audit hazırlığı, key management"],
+        ["QA / Test Engineer", "1", "E2E testleri, regresyon"],
+        ["Product Manager", "1", "Sipariş akışları, KYC akışları"],
+        ["Compliance Tech Liaison", "1", "Hukuk ile ürün arası köprü"],
+    ], [6 * cm, 1.5 * cm, 9 * cm]))
+    story.append(Paragraph(
+        "Faz 2 ve sonrası: KYC operasyon, müşteri destek, business "
+        "development, data analyst, ve üç ek arenanın yerel temsilcileri.",
+        styles["body"],
+    ))
 
     story.append(PageBreak())
 
-    # 9. Açık sorular
-    story.append(Paragraph("9. Hala Açık Olan Sorular", styles["h1"]))
+    # ---------- 9. Açık sorular ----------
+    story.append(Paragraph("9. Hala karara bağlanmamış olanlar", styles["h1"]))
+    story.append(Paragraph(
+        "Nisan 2026 toplantısında bazı şeyleri çözdük. Bazıları hâlâ "
+        "düzenleyici görüşü bekliyor. Şeffaf olalım:",
+        styles["body"],
+    ))
 
-    story.append(
-        Paragraph(
-            "Nisan 2026 toplantısında bazı kararlar kesinleşti, bazıları "
-            "düzenleyici görüşüne bağlı:",
-            styles["body"],
-        )
-    )
+    story.append(Paragraph("Çözülenler (kesin)", styles["h2"]))
+    story.append(bullets([
+        "<b>Hassasiyet:</b> 18 decimals — DeFi uyumu ve alt-gram fraksiyon için.",
+        "<b>Self-custody:</b> Ülkeye göre değişir — TR'de custodial-only, CH/AE/LI'de Enhanced KYC sonrası serbest.",
+        "<b>Minimum alım:</b> 1 gram (sistem üzerinden). DEX'te zaten fraksiyon serbest.",
+        "<b>Fiziksel teslim minimumu:</b> 1 kg — LBMA çubuğunu bölmek pahalı.",
+        "<b>Köprü modeli:</b> Faz 4'te yeniden değerlendirilecek; şimdilik LayerZero OFT default.",
+    ], styles["bullet"]))
 
-    story.append(Paragraph("✅ Karara bağlananlar", styles["h2"]))
-    story.append(
-        bullets(
-            [
-                "<b>Hassasiyet:</b> 18 decimals (DeFi uyumu + alt-gram fraksiyonu).",
-                "<b>Self-custody:</b> Jurisdiction bazlı — TR'de custodial-only, CH/AE/LI'de Enhanced KYC sonrası serbest.",
-                "<b>Minimum alım:</b> 1 gram (sipariş bazında). DEX'te fraksiyon serbest.",
-                "<b>Fiziksel teslim minimumu:</b> 1 kg (LBMA çubuk bölme maliyeti).",
-                "<b>Köprü modeli:</b> Faz 4'te yeniden değerlendirilecek; default LayerZero OFT.",
-            ],
-            styles["bullet"],
-        )
-    )
-
-    story.append(Paragraph("⏳ Hala açık", styles["h2"]))
-    story.append(
-        bullets(
-            [
-                "<b>Yakım onayı:</b> &lt;100gr otomatik, üstü onaylı (öneri, henüz onaysız).",
-                "<b>KVKK veri ikametgâhı:</b> Türk kullanıcı KYC verisi yurt dışı çıkabilir mi? Hukuki görüş bekleniyor.",
-                "<b>Gas ödeme modeli:</b> Kullanıcı ETH mi öder, meta-tx mi? Önerilen yol: v1 EIP-2612 permit, v2 meta-tx + paymaster.",
-                "<b>L2 stratejisi:</b> Day-1 sadece Ethereum mainnet mi, Base/Arbitrum day-1 mi? Önerilen: sadece mainnet, odak.",
-            ],
-            styles["bullet"],
-        )
-    )
+    story.append(Paragraph("Hala açık olanlar", styles["h2"]))
+    story.append(bullets([
+        "<b>Yakım onayı:</b> 100 gramın altı otomatik mi, üstü onaylı mı? Henüz karar yok.",
+        "<b>KVKK veri ikametgâhı:</b> Türk kullanıcı verisi yurt dışına çıkabilir mi? Hukuki görüş bekliyoruz.",
+        "<b>Gas ödeme:</b> Kullanıcı ETH mi ödesin, biz mi ödeyelim (meta-tx)? v1'de EIP-2612 permit, v2'de paymaster planı var.",
+        "<b>Layer 2 stratejisi:</b> Day-1 sadece Ethereum mi, yoksa Base/Arbitrum day-1 mi? Öneri: önce mainnet, sonra L2.",
+    ], styles["bullet"]))
 
     story.append(PageBreak())
 
-    # 10. Özet
-    story.append(Paragraph("10. Tek Sayfada Özet", styles["h1"]))
+    # ---------- 10. Özet ----------
+    story.append(Paragraph("10. Tek sayfada özet", styles["h1"]))
 
-    story.append(
-        info_box(
-            "GOLD nedir?",
-            [
-                "Her token gerçek bir gram altına eşit, dört yetki alanında "
-                "lisanslı, her ay Big Four denetimli bir tokenize altın platformu."
-            ],
-            styles,
-        )
-    )
+    story.append(info_box("GOLD nedir?", [
+        "Her token tam olarak bir gram altın. Dört ülkede lisanslı, "
+        "ayda bir Big Four tarafından denetlenen, kendi rafinerisi olan "
+        "bir dijital altın platformu."
+    ], styles))
     story.append(Spacer(1, 0.3 * cm))
 
-    story.append(
-        info_box(
-            "Nasıl çalışıyor?",
-            [
-                "Kullanıcı para yatırır → kasadaki çubuğun bir kısmı ona tahsis "
-                "edilir → çoklu imza ile mint onaylanır → token cüzdana gider. "
-                "Satarken / fiziksel teslimde tam tersi: token yakılır, çubuk serbest kalır."
-            ],
-            styles,
-        )
-    )
+    story.append(info_box("Nasıl çalışıyor?", [
+        "Sen para yatırırsın → kasadaki çubuğun bir kısmı sana "
+        "tahsis edilir → 5 imzadan 3'ü tamam derse token cüzdanına "
+        "gelir. Satarken tersi: token yakılır, çubuk boşa çıkar, "
+        "paran hesabına döner."
+    ], styles))
     story.append(Spacer(1, 0.3 * cm))
 
-    story.append(
-        info_box(
-            "Neden farklı?",
-            [
-                "Çoklu yetki alanı (TR/CH/AE/LI), kendi rafinerisi, gram bazlı "
-                "minimum, çubuk bazında izlenebilirlik, Merkle proof ile bağımsız doğrulama."
-            ],
-            styles,
-        )
-    )
+    story.append(info_box("Rakiplerden farkı?", [
+        "1 gram minimum (1 ons değil), dört yetki alanı (TR/CH/AE/LI), "
+        "kendi rafinerimiz, çubuk bazında izlenebilirlik, Merkle proof "
+        "ile bağımsız doğrulama."
+    ], styles))
     story.append(Spacer(1, 0.3 * cm))
 
-    story.append(
-        info_box(
-            "Nasıl yapılacak?",
-            [
-                "6 fazlık, 24+ aylık yol haritası: önce Türkiye MVP, sonra "
-                "İsviçre + otomatik PoR, sonra mainnet lansman, sonra global "
-                "ölçek ve olgunluk. Her faz öncekinin üstüne bina yapar."
-            ],
-            styles,
-        )
-    )
+    story.append(info_box("Nasıl yapılacak?", [
+        "Altı fazlı, 24+ aylık plan. Önce Türkiye MVP, sonra İsviçre + "
+        "otomatik denetim, sonra mainnet lansmanı, sonra global ölçek "
+        "ve olgun ürün. Hiçbir adım atlanmıyor."
+    ], styles))
     story.append(Spacer(1, 0.3 * cm))
 
-    story.append(
-        info_box(
-            "Ne kadar sürer?",
-            [
-                "İlk MVP (TR arena, manuel PoR): 6 ay. Mainnet lansman "
-                "(otomatik PoR + 3 güvenlik denetimi): 14 ay. Global ölçek "
-                "(4 arena + çoklu zincir): 24 ay."
-            ],
-            styles,
-        )
-    )
+    story.append(info_box("Ne kadar sürer, ne kadar tutar?", [
+        "İlk MVP (TR arena, manuel denetim): 6 ay. Mainnet lansman "
+        "(otomatik PoR + 3 güvenlik denetimi): 14 ay. Tam global ölçek "
+        "(4 arena + çoklu zincir): 24+ ay. Başlangıç rezervi: 10 milyon "
+        "USD. Başlangıç ekibi 13 kişi."
+    ], styles))
 
     story.append(Spacer(1, 1 * cm))
-    story.append(
-        Paragraph(
-            "Daha derin teknik detay için repo içindeki dokümanlara bakın: "
-            "<b>docs/system-design.md</b> (972 satır tam mimari), "
-            "<b>docs/contracts/README.md</b> (kontrat spesifikasyonu), "
-            "<b>docs/backend/README.md</b> (backend servisi spesifikasyonu).",
-            styles["note"],
-        )
-    )
+    story.append(Paragraph(
+        "Detaya inmek istersen: <b>docs/system-design.md</b> (972 satır "
+        "tam mimari), <b>docs/contracts/README.md</b> (kontrat spec), "
+        "<b>docs/backend/README.md</b> (backend spec).",
+        styles["note"],
+    ))
 
     return story
 
@@ -749,12 +588,9 @@ def main():
     OUT.parent.mkdir(parents=True, exist_ok=True)
     styles = build_styles()
     doc = SimpleDocTemplate(
-        str(OUT),
-        pagesize=A4,
-        leftMargin=2 * cm,
-        rightMargin=2 * cm,
-        topMargin=2 * cm,
-        bottomMargin=2 * cm,
+        str(OUT), pagesize=A4,
+        leftMargin=2 * cm, rightMargin=2 * cm,
+        topMargin=2 * cm, bottomMargin=2 * cm,
         title="GOLD Token - Basit Anlatim",
         author="GOLD Token Ekibi",
     )
