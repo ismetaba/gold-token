@@ -581,6 +581,118 @@ def build_story(styles):
         styles["note"],
     ))
 
+    story.append(PageBreak())
+
+    # ---------- 11. PAXG ve XAUT ----------
+    story.append(Paragraph("11. Rakipler: PAXG ve XAUT nasıl çalışıyor?", styles["h1"]))
+    story.append(Paragraph(
+        "Tokenize altın dünyasında iki büyük oyuncu var: <b>PAXG</b> "
+        "(Paxos Gold) ve <b>XAUT</b> (Tether Gold). Onları konuşmadan "
+        "GOLD'un yerini anlamak zor. İkisini tek tek anlatayım, sonra "
+        "yan yana koyalım.",
+        styles["body"],
+    ))
+
+    # --- PAXG ---
+    story.append(Paragraph("PAXG — Paxos Gold", styles["h2"]))
+    story.append(Paragraph(
+        "Paxos, New York merkezli bir kripto şirketi. PAXG'yi 2019'da "
+        "çıkardı. Çalışma mantığı şöyle:",
+        styles["body"],
+    ))
+    story.append(bullets([
+        "<b>İhraç eden:</b> Paxos Trust Company, New York. NYDFS (New York Eyalet Finansal Hizmetler Departmanı) tarafından lisanslı — kripto dünyasının en sıkı regülatörlerinden biri.",
+        "<b>Birim:</b> 1 PAXG = 1 troy ons altın (~31.1 gram). Yani küçük yatırımcı için yüksek bir giriş.",
+        "<b>Kasa:</b> Londra'daki Brink's kasalarında, LBMA standartında 400-ons külçeler halinde.",
+        "<b>Zincir:</b> Sadece Ethereum (ERC-20).",
+        "<b>Denetim:</b> Aylık Withum firması tarafından attestation. Paxos'un sitesinden hangi külçenin senin olduğunu seri numarasıyla görebiliyorsun.",
+        "<b>Fiziksel teslim:</b> 430 ons minimum (yaklaşık 13 kg, 2026 fiyatıyla ~30 milyon TL). Yani pratikte sadece kurumsal kullanıcı için.",
+        "<b>KYC:</b> Sıkı — Paxos doğrudan satın almak için tam doğrulama, borsalardan alırsan borsa KYC'si.",
+    ], styles["bullet"]))
+
+    # --- XAUT ---
+    story.append(Paragraph("XAUT — Tether Gold", styles["h2"]))
+    story.append(Paragraph(
+        "Tether (USDT'nin arkasındaki şirket) 2020'de çıkardı. Mantık "
+        "benzer ama önemli detaylar farklı:",
+        styles["body"],
+    ))
+    story.append(bullets([
+        "<b>İhraç eden:</b> TG Commodities Limited, British Virgin Islands. Yani offshore — NYDFS gibi sıkı bir regülatöre değil, BVI hafif çerçevesine bağlı.",
+        "<b>Birim:</b> 1 XAUT = 1 troy ons altın (~31.1 gram). PAXG ile aynı.",
+        "<b>Kasa:</b> İsviçre'de (Tether kesin lokasyon açıklamıyor). LBMA standartı külçeler.",
+        "<b>Zincir:</b> Hem Ethereum (ERC-20) hem Tron (TRC-20) — Tron tarafı daha ucuz işlem.",
+        "<b>Denetim:</b> Tether tarafından yayınlanan attestation. Tarihsel olarak BDO İtalya yapıyordu ama şeffaflığı PAXG kadar tutarlı değil.",
+        "<b>Fiziksel teslim:</b> 50 XAUT (yaklaşık 1.55 kg) — PAXG'den çok daha erişilebilir, ama yine de küçük yatırımcının üstünde.",
+        "<b>KYC:</b> Daha gevşek. Bazı kanallardan KYC yapmadan da alınabiliyor (Tether'in genel çizgisi).",
+    ], styles["bullet"]))
+
+    # --- Karşılaştırma tablosu ---
+    story.append(Paragraph("Üçü yan yana", styles["h2"]))
+    story.append(styled_table([
+        ["Özellik", "PAXG", "XAUT", "GOLD"],
+        ["İhraç eden", "Paxos (NY)", "TG / Tether (BVI)", "GOLD (TR/CH/AE/LI)"],
+        ["Düzenleyici", "NYDFS", "BVI offshore", "CMB+FINMA+VARA+FMA"],
+        ["Minimum birim", "1 ons (~31g)", "1 ons (~31g)", "1 gram"],
+        ["Kasa lokasyonu", "Londra", "İsviçre", "4 kasa, 4 ülke"],
+        ["Rafineri", "3. taraf", "3. taraf", "Kendi (Çorum)"],
+        ["Zincir", "Ethereum", "Ethereum + Tron", "Ethereum (sonra çoklu)"],
+        ["Denetim", "Aylık Withum", "Düzensiz BDO", "Aylık Big Four"],
+        ["Merkle proof on-chain", "Hayır", "Hayır", "Evet"],
+        ["Fiziksel teslim min.", "~13 kg", "~1.55 kg", "1 kg"],
+        ["KYC sıkılık", "Yüksek", "Orta", "Yüksek, ülkeye göre"],
+        ["Sigorta beyanı", "Var", "Açık değil", "Lloyd's 500M USD"],
+        ["Yaklaşık piyasa değeri", "~600M USD", "~700M USD", "Henüz yok"],
+    ], [4.5 * cm, 4 * cm, 4 * cm, 4 * cm]))
+
+    # --- Artıları eksileri ---
+    story.append(Paragraph("PAXG'nin artıları ve eksileri", styles["h2"]))
+    story.append(bullets([
+        "<b>+</b> NYDFS regülasyonu — kripto dünyasının en güvenilir regülatörü.",
+        "<b>+</b> Aylık şeffaf denetim, sürekli.",
+        "<b>+</b> Brink's Londra — kasada şüphe yok.",
+        "<b>+</b> Likidite iyi — Binance, Kraken, Coinbase gibi büyük borsalarda var.",
+        "<b>−</b> 1 ons minimum — Türk perakende yatırımcısı için yüksek (yaklaşık 70 bin TL).",
+        "<b>−</b> Tek jurisdiction (ABD) — politik risk. SEC bir gün 'durdurun' derse ne olur?",
+        "<b>−</b> Fiziksel teslim 430 ons — pratikte sadece kurumsal.",
+        "<b>−</b> Rafineri ve kasa hep üçüncü taraf — kendi tedarik zinciri yok.",
+    ], styles["bullet"]))
+
+    story.append(Paragraph("XAUT'un artıları ve eksileri", styles["h2"]))
+    story.append(bullets([
+        "<b>+</b> Fiziksel teslim 50 ons — PAXG'den çok daha erişilebilir.",
+        "<b>+</b> İsviçre kasası — politik olarak nötr ülke.",
+        "<b>+</b> Ethereum ve Tron'da birden — Tron tarafı çok ucuz işlem.",
+        "<b>+</b> Bazı kanallarda KYC'siz alım mümkün (gri alan ama gerçek).",
+        "<b>−</b> Tether ile bağlı — USDT'nin geçmişteki rezerv tartışmaları itibarı zedeliyor.",
+        "<b>−</b> BVI regülasyonu — offshore, sıkı bir denetleyici yok.",
+        "<b>−</b> Şeffaflık raporları PAXG kadar disiplinli değil.",
+        "<b>−</b> Likidite PAXG'den daha düşük.",
+    ], styles["bullet"]))
+
+    story.append(Paragraph("Peki GOLD nereye oturuyor?", styles["h2"]))
+    story.append(Paragraph(
+        "PAXG güvenilir ama büyük kurumsal odaklı, küçük yatırımcı için "
+        "uzak. XAUT erişilebilir ama Tether itibarı taşıyor. GOLD bu "
+        "iki ucun ortasında olmaya çalışıyor:",
+        styles["body"],
+    ))
+    story.append(bullets([
+        "<b>Erişilebilirlik:</b> 1 gram minimum, XAUT'tan bile düşük.",
+        "<b>Güvenilirlik:</b> 4 ayrı düzenleyici, Big Four denetimi, on-chain Merkle proof — PAXG'den bile bir adım öteye.",
+        "<b>Bağımsızlık:</b> Kendi rafinerimiz (Çorum) — ne PAXG'de ne XAUT'ta var.",
+        "<b>Politik dayanıklılık:</b> Bir ülke kapanırsa diğer üçü çalışır. PAXG (ABD-only) ve XAUT (BVI tek) buna sahip değil.",
+        "<b>Eksisi:</b> Henüz canlı değil, marka tanınmamış, likidite sıfırdan kurulacak. Bu da başlangıçtaki en büyük zorluk.",
+    ], styles["bullet"]))
+
+    story.append(Spacer(1, 0.5 * cm))
+    story.append(info_box("Tek cümlede konum", [
+        "PAXG = güvenilir ama küçük yatırımcıya uzak. "
+        "XAUT = erişilebilir ama Tether gölgesi taşıyor. "
+        "GOLD = 'PAXG'nin güveni + XAUT'un erişilebilirliği + "
+        "kendi rafinerimiz + 4 jurisdiction' formülünü deniyor."
+    ], styles))
+
     return story
 
 
