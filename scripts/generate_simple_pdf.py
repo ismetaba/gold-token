@@ -131,7 +131,7 @@ def footer(canvas, doc):
     canvas.saveState()
     canvas.setFont("DejaVu", 8)
     canvas.setFillColor(GREY)
-    canvas.drawString(2 * cm, 1.2 * cm, "GOLD Token — Basit Anlatım v0.2 — GİZLİ")
+    canvas.drawString(2 * cm, 1.2 * cm, "GOLD Token — Basit Anlatım v0.4 — GİZLİ")
     canvas.drawRightString(A4[0] - 2 * cm, 1.2 * cm, f"Sayfa {canvas.getPageNumber()}")
     canvas.setStrokeColor(GOLD)
     canvas.setLineWidth(0.5)
@@ -691,6 +691,246 @@ def build_story(styles):
         "XAUT = erişilebilir ama Tether gölgesi taşıyor. "
         "GOLD = 'PAXG'nin güveni + XAUT'un erişilebilirliği + "
         "kendi rafinerimiz + 4 jurisdiction' formülünü deniyor."
+    ], styles))
+
+    # ---- 11.x Blokzincir tarafından karşılaştırma ----
+    story.append(PageBreak())
+    story.append(Paragraph("11.2. Blokzincir tarafından üçü yan yana", styles["h2"]))
+    story.append(Paragraph(
+        "Buraya kadar konuştuğumuz fark çoğunlukla iş tarafıydı. Asıl "
+        "tokenize altın işinin ruhu kontratlarda gizli. PAXG ve XAUT'un "
+        "Ethereum üzerindeki sözleşmeleri açık ve okunabilir; aşağıdaki "
+        "tablo onlardan çıkarıldı:",
+        styles["body"],
+    ))
+
+    story.append(styled_table([
+        ["Özellik", "PAXG", "XAUT", "GOLD"],
+        ["Deploy yılı", "2019", "2020", "2026 (planlı)"],
+        ["Solidity sürümü", "0.5.x", "0.4.17", "0.8.24"],
+        ["Decimals", "18", "6", "18"],
+        ["Upgrade pattern", "Custom delegate-call", "Deprecation flag", "UUPS + 7 gün Timelock"],
+        ["Mint yetkisi", "Tek supplyController", "Tek owner", "K-of-N (3/5)"],
+        ["On-chain reserve gate", "Yok", "Yok", "Var (35 gün taze)"],
+        ["Merkle proof on-chain", "Yok", "Yok", "Var"],
+        ["EIP-712 attestation", "Yok", "Yok", "Var"],
+        ["EIP-2612 permit", "Yok", "Yok", "Var"],
+        ["On-chain KYC kontrolü", "Yok (off-chain)", "Yok (off-chain)", "Her _update'de"],
+        ["Travel Rule on-chain", "Yok", "Yok", "Var (eşik bazlı)"],
+        ["Freeze + wipe yetkisi", "Var", "Var (blacklist)", "Freeze var, wipe yok"],
+        ["Custom errors (gas)", "Yok", "Yok", "Var"],
+        ["ERC-7201 storage", "Yok", "Yok", "Var"],
+    ], [4.5 * cm, 4 * cm, 4 * cm, 4 * cm]))
+
+    story.append(Paragraph("Üç kritik fark", styles["h2"]))
+    story.append(Paragraph(
+        "Tablo uzun ama özü üç maddede toplanabilir:",
+        styles["body"],
+    ))
+    story.append(bullets([
+        "<b>1. Mint nasıl kontrol ediliyor?</b> PAXG ve XAUT'ta tek bir cüzdan adresi yetkili. O adres ele geçirilirse veya kötüye kullanılırsa sistem biter. GOLD'da kontrat seviyesinde 5 imzacıdan 3'ü onaylamadıkça hiçbir token basılmıyor — tek bir kişi mint yapamaz, kontrat reddediyor.",
+        "<b>2. Rezerv kontrolü zincirde mi, off-chain mi?</b> PAXG ve XAUT'ta 'kasada altın yoksa basamazsın' kuralı issuer'ın iç prosedüründe — kontrat soruyu sormuyor. GOLD'da MintController her execute'ta totalSupply + amount > attestedGrams ise revert ediyor, ayrıca son denetim 35 günü geçmişse de revert.",
+        "<b>3. Kullanıcı kendi başına doğrulayabilir mi?</b> PAXG/XAUT'ta 'benim altınım hangi çubukta' sorusunun cevabı issuer'ın websitesinde — onlara güvenmek zorundasın. GOLD'da ReserveOracle.verifyBarInclusion(index, leaf, proof) zincirde çağrılabiliyor, matematik sana 'evet bu çubuk o ayki denetimdeydi' diyor. İssuer'a güvenmek zorunda değilsin.",
+    ], styles["bullet"]))
+
+    story.append(Paragraph("PAXG'nin teknik tarafı — kısa kısa", styles["h2"]))
+    story.append(bullets([
+        "<b>Kontrat adresi:</b> 0x4580...4F78a (Ethereum mainnet).",
+        "<b>Mimari:</b> Paxos kendi delegate-call proxy pattern'i. OZ değil.",
+        "<b>Roller:</b> owner, assetProtectionRole, supplyController, feeController, feeRecipient, pauser.",
+        "<b>Wipe yetkisi:</b> assetProtectionRole bir cüzdanı dondurup wipeFrozenAddress ile bakiyeyi silebilir. NYDFS düzenlemesi için var ama merkezi güç.",
+        "<b>Fee:</b> Kontratta feeRate parametresi var, şu an %0 ama issuer açabilir.",
+        "<b>Audit:</b> ChainSecurity (kontrat) + Withum (aylık attestation).",
+    ], styles["bullet"]))
+
+    story.append(Paragraph("XAUT'un teknik tarafı — kısa kısa", styles["h2"]))
+    story.append(bullets([
+        "<b>Kontrat adresi:</b> 0x6874...82F38 (Ethereum mainnet); ayrıca Tron'da TRC-20.",
+        "<b>Mimari:</b> USDT TetherToken pattern'i — BasicToken + StandardToken + Pausable + BlackList. Yani USDT'nin altın versiyonu denebilir.",
+        "<b>6 decimals:</b> DEX entegrasyonlarında dikkat ister — 18 değil.",
+        "<b>Blacklist:</b> Owner istediği adresi blackliste atıp destroyBlackFunds ile bakiyesini yakabilir. USDT'deki ile aynı.",
+        "<b>Deprecation flag:</b> Owner kontratı 'deprecated' işaretleyip yeni adrese yönlendirebilir — pseudo-upgrade.",
+        "<b>Fee:</b> basisPointsRate + maximumFee parametreleri (USDT'den miras), şu an 0.",
+    ], styles["bullet"]))
+
+    story.append(PageBreak())
+
+    # ---------- 12. Blokzincir teknik derinlik ----------
+    story.append(Paragraph("12. Blokzincir tarafına teknik bakış (GOLD)", styles["h1"]))
+    story.append(Paragraph(
+        "Bu bölüm yazılım geliştiriciler ve teknik denetçiler için. "
+        "Eğer kod tarafıyla işin yoksa atlamak serbest. Burada "
+        "kontratların gerçekten ne yaptığını madde madde anlatacağız.",
+        styles["body"],
+    ))
+
+    story.append(Paragraph("12.1. Genel teknik yığın", styles["h2"]))
+    story.append(bullets([
+        "<b>Dil:</b> Solidity 0.8.24, Cancun EVM. Built-in overflow check var (0.8+).",
+        "<b>Compiler ayarları:</b> via_ir = true, optimizer 10.000 runs. via_ir özellikle MintController gibi karmaşık kontratta stack-too-deep hatalarını çözüyor.",
+        "<b>Framework:</b> Foundry. Fuzz testler default 1.000 run, CI'da 10.000. Invariant testler 256 run + 100 depth.",
+        "<b>Kütüphaneler:</b> OpenZeppelin v5 (audit havuzu en geniş) + Solady (kritik path'lerde gas optimizasyonu).",
+        "<b>Storage pattern:</b> ERC-7201 'namespaced storage' — her kontratın storage'ı keccak hash ile izole slot'a yazılıyor. Upgrade çakışması fiziksel olarak imkânsız.",
+        "<b>Custom errors:</b> Tüm revert'ler string yerine custom error. Hem gas hem hata yakalama daha iyi.",
+        "<b>Bytecode hash:</b> none, cbor_metadata false — deterministik build için.",
+    ], styles["bullet"]))
+
+    story.append(Paragraph("12.2. Roller tablosu — kim ne yapabilir?", styles["h2"]))
+    story.append(Paragraph(
+        "GOLD'da on iki ayrı rol var. Hiçbir adresin birden fazla "
+        "kritik rolü almaması ilkesi — kuvvetler ayrılığı:",
+        styles["body"],
+    ))
+    story.append(styled_table([
+        ["Rol", "Verildiği yer", "Ne yapabilir"],
+        ["DEFAULT_ADMIN", "Treasury Safe", "Rol verir/alır"],
+        ["TREASURY_ROLE", "Treasury Safe", "Parametre değişikliği, controller atama"],
+        ["UPGRADER_ROLE", "Treasury Safe", "UUPS _authorizeUpgrade"],
+        ["PAUSER_ROLE", "Acil müdahale ekibi", "Token.pause() — sadece dondurma"],
+        ["MINT_PROPOSER", "Mint/Burn Service", "Mint önerisi açar"],
+        ["MINT_APPROVER", "5 ayrı imzacı", "Önerilen mint'i onaylar"],
+        ["MINT_EXECUTOR", "Operations bot", "Onaylanmışı execute eder"],
+        ["BURN_OPERATOR", "Mint/Burn Service", "Redemption burn başlatır"],
+        ["COMPLIANCE_OFFICER", "Uyum müdürü", "Freeze, sanctions, Travel Rule, operator burn imzası"],
+        ["KYC_WRITER", "KYC Service", "WalletProfile yazar"],
+        ["AUDITOR_ROLE", "Big Four cüzdanı", "ReserveOracle.publish ile attestation yayınlar"],
+        ["FEE_RECIPIENT", "Treasury Safe", "Mint/burn fee'sini alır"],
+    ], [4.5 * cm, 4 * cm, 7 * cm]))
+
+    story.append(PageBreak())
+
+    story.append(Paragraph("12.3. Mint akışının zincir üstü mantığı", styles["h2"]))
+    story.append(Paragraph(
+        "executeMint çağrıldığında kontrat şu beş kontrolü yapıyor — "
+        "biri bile düşerse revert:",
+        styles["body"],
+    ))
+    story.append(bullets([
+        "<b>1. Onay sayısı:</b> p.approvers.length >= approvalThreshold (default 3). Aksi halde InsufficientApprovals revert.",
+        "<b>2. Compliance:</b> ComplianceRegistry.canMint(to, amount, jurisdiction). Alıcı dondurulmuş, sanctions'lı veya KYC süresi geçmişse false döner.",
+        "<b>3. Reserve freshness:</b> ReserveOracle.timeSinceLatest() > maxReserveAge (default 35 gün) ise StaleReserveAttestation revert.",
+        "<b>4. Reserve invariant:</b> token.totalSupply() + grossAmount <= oracle.latestAttestedGrams(). Aksi halde ReserveInvariantViolated revert.",
+        "<b>5. Rate limit (opsiyonel):</b> Bir pencere içinde basılan toplam miktar konfigüre edilmiş tavanı aşamaz.",
+    ], styles["bullet"]))
+    story.append(Paragraph(
+        "Bunlar geçtikten sonra <b>CEI pattern</b> uygulanıyor: önce "
+        "state update (ProposalStatus.EXECUTED + allocationUsed = true), "
+        "sonra dış çağrı (token.mint). Mint sonucu 25 bps fee Treasury'ye, "
+        "kalan kullanıcıya gidiyor. ReentrancyGuard'la ayrıca korunmalı.",
+        styles["body"],
+    ))
+
+    story.append(Paragraph("12.4. ReserveOracle neden upgradeable değil?", styles["h2"]))
+    story.append(Paragraph(
+        "Diğer tüm kontratlar UUPS proxy ile upgrade edilebilir. "
+        "ReserveOracle bilinçli olarak <b>immutable</b>. Sebep: denetim "
+        "geçmişinin değiştirilemezliği sistemin can damarı. Eğer biri "
+        "ReserveOracle'ı upgrade edebilirse geçmiş attestation'ları "
+        "silebilir. Bunu imkânsızlaştırmak için:",
+        styles["body"],
+    ))
+    story.append(bullets([
+        "Kontratta hiç UUPS init yok, _authorizeUpgrade fonksiyonu yok.",
+        "Attestation[] private _attestations — sadece push var, delete yok.",
+        "publish() içinde monotonicity check: yeni timestamp eski timestamp'ten kesinlikle büyük olmalı.",
+        "Geleceğe tarihli attestation kabul edilmiyor (±1 saat tolerans, NTP sapması için).",
+        "Bug bulunursa: yeni ReserveOracle deploy edilir, MintController.setOracle() ile bağlanır. Eski kontrat blockchain'de kalır, geçmiş okunabilir.",
+    ], styles["bullet"]))
+
+    story.append(Paragraph("12.5. EIP-712 attestation yapısı", styles["h2"]))
+    story.append(Paragraph(
+        "Denetçinin imzaladığı veri yapısı sabit. publish() çağrısında "
+        "kontrat bu hash'i yeniden hesaplayıp ECDSA.recover ile "
+        "imzayı doğruluyor. Yapı:",
+        styles["body"],
+    ))
+    story.append(bullets([
+        "<b>timestamp:</b> attestation üretildiği zaman (saniye).",
+        "<b>asOf:</b> kasanın hangi an itibariyle sayıldığı (timestamp'ten önce).",
+        "<b>totalGrams:</b> dört kasanın toplam altın miktarı, 1e18 ile çarpılmış.",
+        "<b>merkleRoot:</b> her çubuğun seri/ağırlık/saflık/kasa hash'lerinden oluşan ağacın kökü.",
+        "<b>ipfsCid:</b> tam denetim paketinin (PDF, fotoğraflar, CSV) IPFS adresi.",
+        "<b>auditor:</b> imzayı atan denetçinin Ethereum adresi. AUDITOR_ROLE'üne sahip olmalı, aksi halde UnknownAuditor revert.",
+    ], styles["bullet"]))
+
+    story.append(PageBreak())
+
+    story.append(Paragraph("12.6. Kullanıcı Merkle proof doğrulama akışı", styles["h2"]))
+    story.append(Paragraph(
+        "verify.gold.example portalında 'altınımı doğrula' tuşuna "
+        "basıldığında arka planda olan şu:",
+        styles["body"],
+    ))
+    story.append(bullets([
+        "Backend kullanıcının cüzdanını → bar_allocations → gold_bars → vault zincirinden geçirip son audit_snapshot'taki çubuk leaf'lerini buluyor.",
+        "Her çubuk için Merkle proof veriyor: leaf = keccak256(barSerial, weightGrams, purity999, vaultCode, refinerLBMAId).",
+        "Kullanıcı isterse browser'da Ethers/Viem ile ReserveOracle.verifyBarInclusion(attestationIndex, leaf, proof) çağırıyor.",
+        "Kontrat MerkleProof.verifyCalldata(proof, root, leaf) çalıştırıp true/false dönüyor.",
+        "true ise: kullanıcı 'o çubuk gerçekten o ayki denetimdeydi' garantisini matematiksel olarak almış oluyor — siteye değil, Ethereum'a güveniyor.",
+    ], styles["bullet"]))
+
+    story.append(Paragraph("12.7. GoldToken._update kancası", styles["h2"]))
+    story.append(Paragraph(
+        "OpenZeppelin v5 ile transfer/mint/burn akışları tek bir _update "
+        "hook'unda birleşti (eski _beforeTokenTransfer yerine). Bu hook "
+        "şu sırayla çalışıyor:",
+        styles["body"],
+    ))
+    story.append(bullets([
+        "<b>whenNotPaused modifier:</b> Pauser kontratı durdurmuşsa transfer yapılmaz.",
+        "<b>Sadece transfer ise (from ve to sıfır değil):</b> ComplianceRegistry.canTransfer(from, to, value) çağrılır.",
+        "<b>canTransfer false dönerse:</b> Hangi kurala takıldığını bulup spesifik revert at — WalletFrozen, SanctionsHit, KycRequired, TravelRuleRequired. Genel NotAuthorized yerine spesifik mesaj gas'ı biraz artırır ama debug'ı kolaylaştırır.",
+        "<b>Mint path (from=0):</b> Sadece mintController adresi mi kontrolü; compliance burada değil MintController'da yapılıyor.",
+        "<b>Burn path (to=0):</b> Sadece burnController adresi mi kontrolü.",
+    ], styles["bullet"]))
+
+    story.append(Paragraph("12.8. BurnController'da dual-control operator burn", styles["h2"]))
+    story.append(Paragraph(
+        "Olağan kullanıcı redemption'ında operatör tek başına burn "
+        "yapabiliyor. Ama 'operator burn' diye ikinci bir akış var — "
+        "mahkeme emriyle dondurulan bir cüzdanın bakiyesini yakmak "
+        "gerekirse. Bu çift kontrol ile yapılıyor:",
+        styles["body"],
+    ))
+    story.append(bullets([
+        "BURN_OPERATOR_ROLE çağrıyı yapıyor.",
+        "Ama beraberinde COMPLIANCE_OFFICER_ROLE'üne sahip birinin EIP-712 imzası gerekiyor.",
+        "İmza şu yapı üzerinde: OperatorBurn(from, amount, reasonHash, nonce, deadline).",
+        "Nonce her kullanımda otomatik artıyor — replay imkânsız.",
+        "Deadline geçmişse DeadlineExpired revert — eski imza geçersiz.",
+        "Yani iki farklı kişinin onayı olmadan operator burn yapılamaz. PAXG/XAUT'taki tek kişilik wipe yetkisinden farklı.",
+    ], styles["bullet"]))
+
+    story.append(Paragraph("12.9. UUPS upgrade + 7 gün Timelock", styles["h2"]))
+    story.append(Paragraph(
+        "Token, ComplianceRegistry, MintController, BurnController "
+        "UUPS proxy ile upgrade edilebilir. Akış:",
+        styles["body"],
+    ))
+    story.append(bullets([
+        "Treasury Safe yeni implementation'a upgrade önerir (Safe transaction olarak).",
+        "Safe'in policy engine'i 7 gün timelock'u uyguluyor — bu süre içinde topluluk inceleyebiliyor.",
+        "Timelock dolduğunda 3/5 imzacı execute ediyor.",
+        "Kontrat seviyesinde _authorizeUpgrade fonksiyonu UPGRADER_ROLE kontrolü yapıyor, ek bir kontrol katmanı.",
+        "Tüm upgrade'ler OpenZeppelin Defender üzerinden monitör ediliyor, anormal aktivite Slack'e alert düşürüyor.",
+    ], styles["bullet"]))
+
+    story.append(Paragraph("12.10. Fee modeli", styles["h2"]))
+    story.append(Paragraph(
+        "GOLD'da iki fee var, ikisi de 25 bps (0.25%):",
+        styles["body"],
+    ))
+    story.append(bullets([
+        "<b>Mint fee:</b> MintController.executeMint sırasında. Gross amount'tan fee düşülür, kalan kullanıcıya. Fee Treasury'ye mint edilir (ayrı bir mint, jurisdiction tag korunuyor).",
+        "<b>Burn fee:</b> BurnController.requestRedemption sırasında. Tam amount yakılıyor; off-chain settlement'ta (amount - fee) gram altın veya nakit kullanıcıya gidiyor. BurnFeeCollected event'i denetlenebilirlik için emit ediliyor.",
+        "<b>Transfer fee:</b> SIFIR. Token'daki transferlerde hiçbir fee yok. PAXG'nin aksine kontratta feeRate parametresi de yok — issuer açma ihtimali bile yok.",
+    ], styles["bullet"]))
+
+    story.append(Spacer(1, 0.3 * cm))
+    story.append(info_box("Sonuç: kontrat seviyesinde GOLD'un üç farkı", [
+        "<b>1.</b> Çoklu imza zincirde zorlanıyor — tek bir anahtar çalınması sistemi düşürmüyor.<br/>"
+        "<b>2.</b> Rezerv kontrolü kontratta — issuer kasayı dolu söylemese bile MintController kabul etmiyor.<br/>"
+        "<b>3.</b> Kullanıcı doğrulaması kontratta — verify portalına değil, Ethereum matematiğine güveniliyor."
     ], styles))
 
     return story
