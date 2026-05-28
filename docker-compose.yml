@@ -559,7 +559,9 @@ services:
       ETHEREUM_JSONRPC_HTTP_URL: http://anvil:8545
       DATABASE_URL: postgres://gold:gold@postgres:5432/blockscout
       ECTO_USE_SSL: "false"
-      SECRET_KEY_BASE: "56NtB3PuGWRhi9j7V59Hcd5dJxJ4R2bIHGH7pBbAHNVSq2gA/wJJBrfIBAfntFEw"
+      # Throwaway key for the local-only block explorer. Override via the env
+      # if desired; never reuse a real secret here (this file is committed).
+      SECRET_KEY_BASE: "${BLOCKSCOUT_SECRET_KEY_BASE:-local-dev-blockscout-not-a-real-secret}"
       CHAIN_ID: "31337"
       COIN: GOLD
       COIN_NAME: "GOLD Token"
