@@ -4,6 +4,8 @@ package config
 import (
 	"fmt"
 	"os"
+
+	"github.com/ismetaba/gold-token/backend/pkg/secrets"
 )
 
 // Config holds all runtime configuration for treasuryd.
@@ -41,8 +43,12 @@ func FromEnv() (*Config, error) {
 			}
 		}
 	} else if c.AdminSecret == "" {
-		// Use a predictable default only in local dev so curl commands work easily.
-		c.AdminSecret = "local-treasury-secret"
+		// Generate a random admin secret for local dev so it's never a static default.
+		s, err := secrets.RandomHex(32)
+		if err != nil {
+			return nil, err
+		}
+		c.AdminSecret = s
 	}
 
 	return c, nil

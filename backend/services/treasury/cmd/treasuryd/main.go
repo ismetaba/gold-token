@@ -80,14 +80,16 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 
 	// 3. Repos
 	var (
-		reserveRepo     repo.ReserveRepo
-		settlementRepo  repo.SettlementRepo
-		reconcileRepo   repo.ReconciliationRepo
+		reserveRepo    repo.ReserveRepo
+		settlementRepo repo.SettlementRepo
+		reconcileRepo  repo.ReconciliationRepo
+		txStore        *repo.TxStore
 	)
 	if pool != nil {
 		reserveRepo = repo.NewPGReserveRepo(pool)
 		settlementRepo = repo.NewPGSettlementRepo(pool)
 		reconcileRepo = repo.NewPGReconciliationRepo(pool)
+		txStore = repo.NewTxStore(pool)
 	}
 
 	// 4. Event consumer
@@ -100,7 +102,7 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 	}
 
 	// 5. HTTP server
-	handlers := trhttp.NewHandlers(reserveRepo, settlementRepo, reconcileRepo, bus, cfg.AdminSecret, log)
+	handlers := trhttp.NewHandlers(reserveRepo, settlementRepo, reconcileRepo, txStore, bus, cfg.AdminSecret, log)
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handlers.Routes(cfg.Env),

@@ -2,7 +2,6 @@
 package http
 
 import (
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"math/big"
@@ -451,7 +450,7 @@ func (h *Handlers) createAudit(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		secret := r.Header.Get("X-Admin-Secret")
-		if subtle.ConstantTimeCompare([]byte(secret), []byte(h.adminSecret)) != 1 {
+		if !httputil.ValidAdminSecret(h.adminSecret, secret) {
 			writeError(w, http.StatusUnauthorized, "unauthorized", "invalid admin secret")
 			return
 		}

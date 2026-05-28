@@ -10,10 +10,20 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ismetaba/gold-token/backend/services/treasury/internal/domain"
 )
+
+// Querier is the subset of pgx behaviour shared by *pgxpool.Pool and pgx.Tx.
+// Repos depend on this so the same query methods can run either directly on the
+// pool or inside a transaction (see TxStore).
+type Querier interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
 
 var (
 	ErrNotFound            = errors.New("record not found")
@@ -45,12 +55,12 @@ type ReconciliationRepo interface {
 
 // ── PostgreSQL implementations ─────────────────────────────────────────────
 
-type pgReserveRepo struct{ pool *pgxpool.Pool }
+type pgReserveRepo struct{ db Querier }
 
-func NewPGReserveRepo(pool *pgxpool.Pool) ReserveRepo { return &pgReserveRepo{pool: pool} }
+func NewPGReserveRepo(db Querier) ReserveRepo { return &pgReserveRepo{db: db} }
 
 func (r *pgReserveRepo) List(ctx context.Context) ([]domain.ReserveAccount, error) {
-	rows, err := r.pool.Query(ctx,
+	rows, err := r.db.Query(ctx,
 		`SELECT id, account_type, balance_wei, currency, arena, created_at, updated_at
 		 FROM treasury.reserve_accounts ORDER BY currency, account_type`)
 	if err != nil {
@@ -75,7 +85,7 @@ func (r *pgReserveRepo) ByTypeAndCurrency(ctx context.Context, accountType domai
 }
 
 func (r *pgReserveRepo) Credit(ctx context.Context, id uuid.UUID, amountWei *big.Int) error {
-	tag, err := r.pool.Exec(ctx,
+	tag, err := r.db.Exec(ctx,
 		`UPDATE treasury.reserve_accounts
 		 SET balance_wei = balance_wei + $2, updated_at = now()
 		 WHERE id = $1`,
@@ -90,7 +100,7 @@ func (r *pgReserveRepo) Credit(ctx context.Context, id uuid.UUID, amountWei *big
 }
 
 func (r *pgReserveRepo) Debit(ctx context.Context, id uuid.UUID, amountWei *big.Int) error {
-	tag, err := r.pool.Exec(ctx,
+	tag, err := r.db.Exec(ctx,
 		`UPDATE treasury.reserve_accounts
 		 SET balance_wei = balance_wei - $2, updated_at = now()
 		 WHERE id = $1 AND balance_wei >= $2`,
@@ -101,7 +111,7 @@ func (r *pgReserveRepo) Debit(ctx context.Context, id uuid.UUID, amountWei *big.
 	if tag.RowsAffected() == 0 {
 		// Either not found or balance was insufficient — check which.
 		var exists bool
-		_ = r.pool.QueryRow(ctx,
+		_ = r.db.QueryRow(ctx,
 			`SELECT EXISTS(SELECT 1 FROM treasury.reserve_accounts WHERE id = $1)`, id,
 		).Scan(&exists)
 		if !exists {
@@ -113,7 +123,7 @@ func (r *pgReserveRepo) Debit(ctx context.Context, id uuid.UUID, amountWei *big.
 }
 
 func (r *pgReserveRepo) scanOne(ctx context.Context, q string, args ...any) (domain.ReserveAccount, error) {
-	rows, err := r.pool.Query(ctx, q, args...)
+	rows, err := r.db.Query(ctx, q, args...)
 	if err != nil {
 		return domain.ReserveAccount{}, fmt.Errorf("query reserve account: %w", err)
 	}
@@ -144,7 +154,11 @@ func scanReserveAccounts(rows pgx.Rows) ([]domain.ReserveAccount, error) {
 			return nil, fmt.Errorf("scan reserve account: %w", err)
 		}
 		acc.AccountType = domain.AccountType(accType)
-		acc.BalanceWei = mustParseBigInt(balStr)
+		bal, err := parseBigInt(balStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse balance for account %s: %w", acc.ID, err)
+		}
+		acc.BalanceWei = bal
 		out = append(out, acc)
 	}
 	return out, rows.Err()
@@ -152,12 +166,12 @@ func scanReserveAccounts(rows pgx.Rows) ([]domain.ReserveAccount, error) {
 
 // ── Settlement repo ────────────────────────────────────────────────────────
 
-type pgSettlementRepo struct{ pool *pgxpool.Pool }
+type pgSettlementRepo struct{ db Querier }
 
-func NewPGSettlementRepo(pool *pgxpool.Pool) SettlementRepo { return &pgSettlementRepo{pool: pool} }
+func NewPGSettlementRepo(db Querier) SettlementRepo { return &pgSettlementRepo{db: db} }
 
 func (r *pgSettlementRepo) Create(ctx context.Context, s domain.Settlement) error {
-	_, err := r.pool.Exec(ctx,
+	_, err := r.db.Exec(ctx,
 		`INSERT INTO treasury.settlements
 			(id, settlement_type, account_id, amount_wei, reference_id, reference_type, tx_hash, status, settled_at, created_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
@@ -172,7 +186,7 @@ func (r *pgSettlementRepo) Create(ctx context.Context, s domain.Settlement) erro
 }
 
 func (r *pgSettlementRepo) List(ctx context.Context, limit, offset int) ([]domain.Settlement, error) {
-	rows, err := r.pool.Query(ctx,
+	rows, err := r.db.Query(ctx,
 		`SELECT id, settlement_type, account_id, amount_wei, reference_id, reference_type,
 		        tx_hash, status, settled_at, created_at
 		 FROM treasury.settlements
@@ -186,7 +200,7 @@ func (r *pgSettlementRepo) List(ctx context.Context, limit, offset int) ([]domai
 }
 
 func (r *pgSettlementRepo) ByID(ctx context.Context, id uuid.UUID) (domain.Settlement, error) {
-	rows, err := r.pool.Query(ctx,
+	rows, err := r.db.Query(ctx,
 		`SELECT id, settlement_type, account_id, amount_wei, reference_id, reference_type,
 		        tx_hash, status, settled_at, created_at
 		 FROM treasury.settlements WHERE id = $1`, id)
@@ -205,7 +219,7 @@ func (r *pgSettlementRepo) ByID(ctx context.Context, id uuid.UUID) (domain.Settl
 }
 
 func (r *pgSettlementRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.SettlementStatus, settledAt *time.Time) error {
-	tag, err := r.pool.Exec(ctx,
+	tag, err := r.db.Exec(ctx,
 		`UPDATE treasury.settlements SET status = $2, settled_at = $3 WHERE id = $1`,
 		id, string(status), settledAt)
 	if err != nil {
@@ -235,7 +249,11 @@ func scanSettlements(rows pgx.Rows) ([]domain.Settlement, error) {
 		}
 		s.SettlementType = domain.SettlementType(sType)
 		s.Status = domain.SettlementStatus(sStatus)
-		s.AmountWei = mustParseBigInt(amtStr)
+		amt, err := parseBigInt(amtStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse amount for settlement %s: %w", s.ID, err)
+		}
+		s.AmountWei = amt
 		out = append(out, s)
 	}
 	return out, rows.Err()
@@ -243,14 +261,14 @@ func scanSettlements(rows pgx.Rows) ([]domain.Settlement, error) {
 
 // ── Reconciliation repo ────────────────────────────────────────────────────
 
-type pgReconciliationRepo struct{ pool *pgxpool.Pool }
+type pgReconciliationRepo struct{ db Querier }
 
-func NewPGReconciliationRepo(pool *pgxpool.Pool) ReconciliationRepo {
-	return &pgReconciliationRepo{pool: pool}
+func NewPGReconciliationRepo(db Querier) ReconciliationRepo {
+	return &pgReconciliationRepo{db: db}
 }
 
 func (r *pgReconciliationRepo) Create(ctx context.Context, log domain.ReconciliationLog) error {
-	_, err := r.pool.Exec(ctx,
+	_, err := r.db.Exec(ctx,
 		`INSERT INTO treasury.reconciliation_logs
 			(id, account_id, expected_balance_wei, actual_balance_wei, status, reconciled_at)
 		 VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -265,7 +283,7 @@ func (r *pgReconciliationRepo) Create(ctx context.Context, log domain.Reconcilia
 }
 
 func (r *pgReconciliationRepo) ListByAccount(ctx context.Context, accountID uuid.UUID, limit int) ([]domain.ReconciliationLog, error) {
-	rows, err := r.pool.Query(ctx,
+	rows, err := r.db.Query(ctx,
 		`SELECT id, account_id, expected_balance_wei, actual_balance_wei, discrepancy_wei, status, reconciled_at
 		 FROM treasury.reconciliation_logs
 		 WHERE account_id = $1
@@ -292,19 +310,71 @@ func (r *pgReconciliationRepo) ListByAccount(ctx context.Context, accountID uuid
 		); err != nil {
 			return nil, fmt.Errorf("scan reconciliation log: %w", err)
 		}
-		l.ExpectedBalanceWei = mustParseBigInt(expStr)
-		l.ActualBalanceWei = mustParseBigInt(actStr)
-		l.DiscrepancyWei = mustParseBigInt(discStr)
+		exp, err := parseBigInt(expStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse expected balance for log %s: %w", l.ID, err)
+		}
+		act, err := parseBigInt(actStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse actual balance for log %s: %w", l.ID, err)
+		}
+		disc, err := parseBigInt(discStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse discrepancy for log %s: %w", l.ID, err)
+		}
+		l.ExpectedBalanceWei = exp
+		l.ActualBalanceWei = act
+		l.DiscrepancyWei = disc
 		l.Status = domain.ReconciliationStatus(status)
 		out = append(out, l)
 	}
 	return out, rows.Err()
 }
 
+// ── transactional store ───────────────────────────────────────────────────
+
+// TxStore runs multi-statement operations atomically against the pool.
+type TxStore struct{ pool *pgxpool.Pool }
+
+// NewTxStore constructs a transactional store.
+func NewTxStore(pool *pgxpool.Pool) *TxStore { return &TxStore{pool: pool} }
+
+// ApplyManualSettlement atomically adjusts the reserve balance AND records the
+// settlement in a single transaction, so the two can never diverge (e.g. a
+// debited balance with no settlement record). On any failure the whole
+// operation is rolled back.
+func (s *TxStore) ApplyManualSettlement(ctx context.Context, accountID uuid.UUID, credit bool, settlement domain.Settlement) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin settlement tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	reserves := NewPGReserveRepo(tx)
+	if credit {
+		err = reserves.Credit(ctx, accountID, settlement.AmountWei)
+	} else {
+		err = reserves.Debit(ctx, accountID, settlement.AmountWei)
+	}
+	if err != nil {
+		return err
+	}
+
+	if err := NewPGSettlementRepo(tx).Create(ctx, settlement); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
-func mustParseBigInt(s string) *big.Int {
-	n := new(big.Int)
-	n.SetString(s, 10)
-	return n
+// parseBigInt parses a base-10 integer string, returning an error rather than
+// silently yielding zero on malformed input — critical on balance/amount paths
+// where a corrupted NUMERIC value must never be read as a 0 balance.
+func parseBigInt(s string) (*big.Int, error) {
+	n, ok := new(big.Int).SetString(s, 10)
+	if !ok {
+		return nil, fmt.Errorf("invalid integer value %q", s)
+	}
+	return n, nil
 }

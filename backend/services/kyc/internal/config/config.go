@@ -2,10 +2,10 @@
 package config
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"os"
+
+	"github.com/ismetaba/gold-token/backend/pkg/secrets"
 )
 
 // Config holds all runtime configuration for kycd.
@@ -54,11 +54,11 @@ func FromEnv() (*Config, error) {
 		}
 	} else if c.AdminSecret == "" {
 		// Generate a random admin secret for local dev so it's never a static default.
-		b := make([]byte, 32)
-		if _, err := rand.Read(b); err != nil {
-			return nil, fmt.Errorf("generate random admin secret: %w", err)
+		s, err := secrets.RandomHex(32)
+		if err != nil {
+			return nil, err
 		}
-		c.AdminSecret = hex.EncodeToString(b)
+		c.AdminSecret = s
 	}
 	return c, nil
 }

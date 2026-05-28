@@ -3,7 +3,6 @@ package http
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -126,7 +125,7 @@ func (h *Handlers) requireAdmin(next http.Handler) http.Handler {
 		if token == "" {
 			token = r.Header.Get("X-Admin-Token")
 		}
-		if subtle.ConstantTimeCompare([]byte(token), []byte(h.adminToken)) != 1 {
+		if !httputil.ValidAdminSecret(h.adminToken, token) {
 			writeErr(w, http.StatusUnauthorized, "unauthorized", "valid admin token required")
 			return
 		}
@@ -145,7 +144,7 @@ func (h *Handlers) requireAuditorKey(next http.Handler) http.Handler {
 		if token == "" {
 			token = r.Header.Get("X-Auditor-Key")
 		}
-		if subtle.ConstantTimeCompare([]byte(token), []byte(h.auditorAPIKey)) != 1 {
+		if !httputil.ValidAdminSecret(h.auditorAPIKey, token) {
 			writeErr(w, http.StatusUnauthorized, "unauthorized", "valid auditor API key required")
 			return
 		}

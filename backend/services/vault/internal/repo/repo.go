@@ -92,8 +92,12 @@ func (r *pgBarRepo) BySerial(ctx context.Context, serial string) (domain.GoldBar
 		}
 		return domain.GoldBar{}, fmt.Errorf("query bar: %w", err)
 	}
-	bar.WeightGramsWei = mustParseBigInt(weightStr)
-	bar.AllocatedSumWei = mustParseBigInt(allocStr)
+	if bar.WeightGramsWei, err = parseBigInt(weightStr); err != nil {
+		return domain.GoldBar{}, fmt.Errorf("parse weight for bar %s: %w", bar.SerialNo, err)
+	}
+	if bar.AllocatedSumWei, err = parseBigInt(allocStr); err != nil {
+		return domain.GoldBar{}, fmt.Errorf("parse allocated sum for bar %s: %w", bar.SerialNo, err)
+	}
 	bar.Status = domain.BarStatus(statusStr)
 	return bar, nil
 }
@@ -138,8 +142,16 @@ func (r *pgBarRepo) List(ctx context.Context, vaultID *uuid.UUID, status *string
 		); err != nil {
 			return nil, fmt.Errorf("scan bar: %w", err)
 		}
-		bar.WeightGramsWei = mustParseBigInt(weightStr)
-		bar.AllocatedSumWei = mustParseBigInt(allocStr)
+		weight, err := parseBigInt(weightStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse weight for bar %s: %w", bar.SerialNo, err)
+		}
+		alloc, err := parseBigInt(allocStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse allocated sum for bar %s: %w", bar.SerialNo, err)
+		}
+		bar.WeightGramsWei = weight
+		bar.AllocatedSumWei = alloc
 		bar.Status = domain.BarStatus(statusStr)
 		out = append(out, bar)
 	}
@@ -263,7 +275,11 @@ func (r *pgAuditRepo) List(ctx context.Context, vaultID *uuid.UUID, limit, offse
 		); err != nil {
 			return nil, fmt.Errorf("scan audit record: %w", err)
 		}
-		a.TotalWeightWei = mustParseBigInt(weightStr)
+		weight, err := parseBigInt(weightStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse total weight for audit record %s: %w", a.ID, err)
+		}
+		a.TotalWeightWei = weight
 		out = append(out, a)
 	}
 	return out, rows.Err()
@@ -293,10 +309,14 @@ func (r *pgVaultRepo) ByID(ctx context.Context, id uuid.UUID) (domain.Vault, err
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
-func mustParseBigInt(s string) *big.Int {
-	n := new(big.Int)
-	n.SetString(s, 10)
-	return n
+// parseBigInt parses a base-10 integer string, returning an error rather than
+// silently yielding zero on malformed input — critical on bar-weight paths.
+func parseBigInt(s string) (*big.Int, error) {
+	n, ok := new(big.Int).SetString(s, 10)
+	if !ok {
+		return nil, fmt.Errorf("invalid integer value %q", s)
+	}
+	return n, nil
 }
 
 func isDuplicateKey(err error) bool {

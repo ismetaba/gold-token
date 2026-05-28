@@ -3,7 +3,6 @@ package http
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
@@ -305,7 +304,7 @@ func (h *Handlers) requireAuth(next http.Handler) http.Handler {
 func (h *Handlers) requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		secret := r.Header.Get("X-Admin-Secret")
-		if secret == "" || subtle.ConstantTimeCompare([]byte(secret), []byte(h.adminSecret)) != 1 {
+		if !httputil.ValidAdminSecret(h.adminSecret, secret) {
 			writeErr(w, http.StatusForbidden, "forbidden", "valid X-Admin-Secret header required")
 			return
 		}

@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -331,7 +330,7 @@ func (h *Handlers) listAPIKeys(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) requireMasterSecret(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		secret := r.Header.Get("X-Admin-Secret")
-		if subtle.ConstantTimeCompare([]byte(secret), []byte(h.masterSecret)) != 1 {
+		if !httputil.ValidAdminSecret(h.masterSecret, secret) {
 			writeError(w, http.StatusForbidden, "forbidden", "valid X-Admin-Secret required")
 			return
 		}

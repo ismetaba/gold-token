@@ -3,7 +3,6 @@ package http
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"math/big"
@@ -27,6 +26,7 @@ type Handlers struct {
 	reserves    repo.ReserveRepo
 	settlements repo.SettlementRepo
 	recons      repo.ReconciliationRepo
+	txStore     *repo.TxStore
 	bus         *pkgevents.Bus
 	adminSecret string
 	log         *zap.Logger
@@ -37,6 +37,7 @@ func NewHandlers(
 	reserves repo.ReserveRepo,
 	settlements repo.SettlementRepo,
 	recons repo.ReconciliationRepo,
+	txStore *repo.TxStore,
 	bus *pkgevents.Bus,
 	adminSecret string,
 	log *zap.Logger,
@@ -45,6 +46,7 @@ func NewHandlers(
 		reserves:    reserves,
 		settlements: settlements,
 		recons:      recons,
+		txStore:     txStore,
 		bus:         bus,
 		adminSecret: adminSecret,
 		log:         log,
@@ -84,7 +86,7 @@ func (h *Handlers) Routes(env string) chi.Router {
 func (h *Handlers) requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		secret := r.Header.Get("X-Admin-Secret")
-		if subtle.ConstantTimeCompare([]byte(secret), []byte(h.adminSecret)) != 1 {
+		if !httputil.ValidAdminSecret(h.adminSecret, secret) {
 			writeError(w, http.StatusUnauthorized, "GOLD.TREASURY.UNAUTHORIZED", "invalid admin secret")
 			return
 		}
@@ -219,6 +221,7 @@ func (h *Handlers) createSettlement(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC()
+	credit := sType == domain.SettlementCredit
 	s := domain.Settlement{
 		ID:             uuid.New(),
 		SettlementType: sType,
@@ -227,29 +230,19 @@ func (h *Handlers) createSettlement(w http.ResponseWriter, r *http.Request) {
 		ReferenceID:    refID,
 		ReferenceType:  req.ReferenceType,
 		TxHash:         req.TxHash,
-		Status:         domain.SettlementPending,
+		Status:         domain.SettlementSettled,
+		SettledAt:      &now,
 		CreatedAt:      now,
 	}
 
-	// Apply balance change immediately for manual settlements.
-	if sType == domain.SettlementCredit {
-		if err := h.reserves.Credit(r.Context(), accountID, amountWei); err != nil {
-			h.handleRepoError(w, err, "GOLD.TREASURY.001")
-			return
-		}
-	} else {
-		if err := h.reserves.Debit(r.Context(), accountID, amountWei); err != nil {
-			h.handleRepoError(w, err, "GOLD.TREASURY.002")
-			return
-		}
+	// Apply the balance change and record the settlement atomically so the two
+	// can never diverge.
+	notFoundCode := "GOLD.TREASURY.001"
+	if !credit {
+		notFoundCode = "GOLD.TREASURY.002"
 	}
-
-	ts := now
-	s.Status = domain.SettlementSettled
-	s.SettledAt = &ts
-	if err := h.settlements.Create(r.Context(), s); err != nil {
-		h.log.Error("create manual settlement failed", zap.Error(err))
-		writeError(w, http.StatusInternalServerError, "GOLD.TREASURY.INTERNAL", "failed to record settlement")
+	if err := h.txStore.ApplyManualSettlement(r.Context(), accountID, credit, s); err != nil {
+		h.handleRepoError(w, err, notFoundCode)
 		return
 	}
 
