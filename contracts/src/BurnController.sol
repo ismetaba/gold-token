@@ -49,7 +49,18 @@ contract BurnController is
         mapping(bytes32 => bool) executed;
         mapping(bytes32 => uint256) executedAt;
         mapping(address => uint256) opBurnNonces;
+        // ── Upgrade timelock (appended at END to preserve storage layout) ──
+        uint256 upgradeDelay;
+        address scheduledImpl;
+        uint256 scheduledAt;
     }
+
+    /// @dev Default upgrade timelock: 48 hours.
+    uint256 private constant DEFAULT_UPGRADE_DELAY = 48 hours;
+
+    event UpgradeScheduled(address indexed newImpl, uint256 eligibleAt);
+    event UpgradeCancelled(address indexed cancelledImpl);
+    event UpgradeDelayUpdated(uint256 newDelay);
 
     // keccak256(abi.encode(uint256(keccak256("gold.burn.storage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant STORAGE_LOCATION =
@@ -92,6 +103,7 @@ contract BurnController is
         $.token = IGoldToken(token_);
         $.compliance = IComplianceRegistry(compliance_);
         $.minPhysicalGrams = minPhysicalGrams_;
+        $.upgradeDelay = DEFAULT_UPGRADE_DELAY;
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -116,8 +128,18 @@ contract BurnController is
         // Compliance check: user must not be frozen or sanctioned
         if (!$.compliance.canBurn(req.from, req.amount)) revert Errors.NotAuthorized();
 
+        // Bind redemptionType and deliveryRef into the id so requests that differ only in
+        // those fields produce distinct ids and do not collide.
         reqId = keccak256(
-            abi.encode(req.from, req.amount, req.offChainOrderId, block.chainid, address(this))
+            abi.encode(
+                req.from,
+                req.amount,
+                req.redemptionType,
+                keccak256(bytes(req.deliveryRef)),
+                req.offChainOrderId,
+                block.chainid,
+                address(this)
+            )
         );
 
         if ($.executed[reqId]) revert Errors.ProposalAlreadyExecuted(reqId);
@@ -172,7 +194,17 @@ contract BurnController is
             )
         ) revert Errors.NotAuthorized();
 
-        $.token.burnFrom(from, amount);
+        // Clawback eligibility: operatorBurn is an emergency compliance tool, NOT a generic
+        // burn. The target wallet must be under an active compliance action (frozen or
+        // sanctioned). This prevents the burn operator + a single signature from
+        // confiscating tokens from a wallet in good standing.
+        if (!$.compliance.isFrozen(from) && !$.compliance.isSanctioned(from)) {
+            revert Errors.NotAuthorized();
+        }
+
+        // Route through the dedicated clawback path: bypasses the pause gate and requires
+        // no allowance from the (non-cooperative) target.
+        $.token.operatorBurnFrom(from, amount);
         emit OperatorBurn(from, amount, reasonHash);
     }
 
@@ -214,8 +246,50 @@ contract BurnController is
     // UUPS
     // ──────────────────────────────────────────────────────────────────────
 
+    function scheduleUpgrade(address newImpl) external onlyRole(Roles.UPGRADER_ROLE) {
+        if (newImpl == address(0)) revert Errors.ZeroAddress();
+        BurnStorage storage $ = _s();
+        $.scheduledImpl = newImpl;
+        $.scheduledAt = block.timestamp;
+        emit UpgradeScheduled(newImpl, block.timestamp + $.upgradeDelay);
+    }
+
+    function cancelScheduledUpgrade() external onlyRole(Roles.UPGRADER_ROLE) {
+        BurnStorage storage $ = _s();
+        address cancelled = $.scheduledImpl;
+        $.scheduledImpl = address(0);
+        $.scheduledAt = 0;
+        emit UpgradeCancelled(cancelled);
+    }
+
+    function setUpgradeDelay(uint256 newDelay) external onlyRole(Roles.TREASURY_ROLE) {
+        _s().upgradeDelay = newDelay;
+        emit UpgradeDelayUpdated(newDelay);
+    }
+
+    function upgradeDelay() external view returns (uint256) {
+        return _s().upgradeDelay;
+    }
+
+    function scheduledUpgrade() external view returns (address impl, uint256 scheduledAt) {
+        BurnStorage storage $ = _s();
+        return ($.scheduledImpl, $.scheduledAt);
+    }
+
+    /// @dev UPGRADER_ROLE + on-chain timelock: target must have been scheduled at least
+    ///      `upgradeDelay` seconds earlier.
     function _authorizeUpgrade(address newImpl) internal override onlyRole(Roles.UPGRADER_ROLE) {
         if (newImpl == address(0)) revert Errors.ZeroAddress();
+        BurnStorage storage $ = _s();
+        if ($.scheduledImpl != newImpl || $.scheduledAt == 0) {
+            revert Errors.UpgradeNotTimelocked();
+        }
+        uint256 eligibleAt = $.scheduledAt + $.upgradeDelay;
+        if (block.timestamp < eligibleAt) {
+            revert Errors.UpgradeTimelockActive(eligibleAt);
+        }
+        $.scheduledImpl = address(0);
+        $.scheduledAt = 0;
     }
 }
 

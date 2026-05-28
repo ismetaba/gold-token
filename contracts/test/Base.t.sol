@@ -37,9 +37,11 @@ abstract contract BaseTest is Test {
     address internal bob = makeAddr("bob");
     address internal carol = makeAddr("carol");
 
-    // Auditor (needs private key for EIP-712 signing)
+    // Auditors (need private keys for EIP-712 signing). Default threshold is 2-of-2.
     uint256 internal auditorPk = 0xA11CE;
     address internal auditor;
+    uint256 internal auditor2Pk = 0xA11CE2;
+    address internal auditor2;
 
     // Compliance Officer (needs private key for EIP-712 signing)
     uint256 internal complianceOfficerPk = 0xC0FF1CE;
@@ -62,6 +64,7 @@ abstract contract BaseTest is Test {
 
     function setUp() public virtual {
         auditor = vm.addr(auditorPk);
+        auditor2 = vm.addr(auditor2Pk);
         complianceOfficer = vm.addr(complianceOfficerPk);
 
         // 1. ComplianceRegistry
@@ -80,9 +83,10 @@ abstract contract BaseTest is Test {
         );
         token = GoldToken(address(new ERC1967Proxy(address(tokenImpl), tokenInit)));
 
-        // 3. ReserveOracle (immutable deploy)
-        address[] memory auditors = new address[](1);
+        // 3. ReserveOracle (immutable deploy) — 2 auditors, default 2-of-2 threshold
+        address[] memory auditors = new address[](2);
         auditors[0] = auditor;
+        auditors[1] = auditor2;
         oracle = new ReserveOracle(treasury, auditors);
 
         // 4. MintController
@@ -162,10 +166,14 @@ abstract contract BaseTest is Test {
         );
         bytes32 domain = oracle.DOMAIN_SEPARATOR();
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domain, structHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(auditorPk, digest);
-        bytes memory sig = abi.encodePacked(r, s, v);
 
-        oracle.publish(a, sig);
+        bytes[] memory sigs = new bytes[](2);
+        (uint8 v1, bytes32 r1, bytes32 s1) = vm.sign(auditorPk, digest);
+        sigs[0] = abi.encodePacked(r1, s1, v1);
+        (uint8 v2, bytes32 r2, bytes32 s2) = vm.sign(auditor2Pk, digest);
+        sigs[1] = abi.encodePacked(r2, s2, v2);
+
+        oracle.publish(a, sigs);
     }
 
     function _proposeAndApproveMint(

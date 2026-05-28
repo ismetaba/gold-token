@@ -12,6 +12,14 @@ import { BurnController } from "../src/BurnController.sol";
 
 /// @notice UUPS upgrade script — upgrades one or all proxy contracts to new implementations.
 /// @dev    The deployer wallet must hold UPGRADER_ROLE on the target proxy.
+///
+///         Upgrades are now TIMELOCKED on-chain. The flow is two-phase:
+///           1. Deploy the new implementation and call scheduleUpgrade(newImpl).
+///           2. After `upgradeDelay` seconds (default 48h), call upgradeToAndCall(newImpl, "").
+///         The `upgrade*` functions below assume the matching implementation was already
+///         scheduled and the delay has elapsed; otherwise the proxy reverts with
+///         UpgradeNotTimelocked / UpgradeTimelockActive.
+///
 ///         Usage:
 ///           forge script script/Upgrade.s.sol --sig "upgradeGoldToken()" ...
 ///           forge script script/Upgrade.s.sol --sig "upgradeAll()" ...

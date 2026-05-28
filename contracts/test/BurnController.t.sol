@@ -45,6 +45,31 @@ contract BurnControllerTest is BaseTest {
         token.approve(address(burner), netAmount);
     }
 
+    /// @dev Recompute the reqId the same way BurnController does.
+    function _reqId(IBurnController.RedemptionRequest memory req)
+        internal
+        view
+        returns (bytes32)
+    {
+        return keccak256(
+            abi.encode(
+                req.from,
+                req.amount,
+                req.redemptionType,
+                keccak256(bytes(req.deliveryRef)),
+                req.offChainOrderId,
+                block.chainid,
+                address(burner)
+            )
+        );
+    }
+
+    /// @dev Freeze a wallet (compliance action) so it becomes clawback-eligible.
+    function _freeze(address wallet) internal {
+        vm.prank(complianceOfficer);
+        compliance.freeze(wallet, keccak256("compliance-action"));
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     // Burn fee tests
     // ──────────────────────────────────────────────────────────────────────
@@ -69,9 +94,7 @@ contract BurnControllerTest is BaseTest {
 
         vm.prank(burnOperator);
         vm.expectEmit(true, true, false, true);
-        bytes32 reqId = keccak256(
-            abi.encode(alice, burnAmount, req.offChainOrderId, block.chainid, address(burner))
-        );
+        bytes32 reqId = _reqId(req);
         emit IBurnController.BurnFeeCollected(reqId, alice, expectedFee);
         burner.requestRedemption(req);
 
@@ -151,6 +174,9 @@ contract BurnControllerTest is BaseTest {
         uint256 net = _mintTokens(alice, 50 * 1e18);
         assertEq(token.balanceOf(alice), net);
 
+        // Clawback eligibility: target must be under an active compliance action.
+        _freeze(alice);
+
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory sig = _signOperatorBurn(alice, net, keccak256("reason"), 0, deadline);
 
@@ -158,6 +184,141 @@ contract BurnControllerTest is BaseTest {
         burner.operatorBurn(alice, net, keccak256("reason"), deadline, sig);
 
         assertEq(token.balanceOf(alice), 0);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // operatorBurn: clawback compliance gate + pause semantics
+    // ──────────────────────────────────────────────────────────────────────
+
+    function test_operatorBurn_revertsIfTargetNotFrozenOrSanctioned() public {
+        uint256 net = _mintTokens(alice, 50 * 1e18);
+
+        // alice is in good standing — clawback must be rejected even with a valid signature.
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signOperatorBurn(alice, net, keccak256("reason"), 0, deadline);
+
+        vm.prank(burnOperator);
+        vm.expectRevert(Errors.NotAuthorized.selector);
+        burner.operatorBurn(alice, net, keccak256("reason"), deadline, sig);
+    }
+
+    function test_operatorBurn_worksWhenSanctioned() public {
+        uint256 net = _mintTokens(alice, 50 * 1e18);
+
+        vm.prank(complianceOfficer);
+        compliance.setSanctioned(alice, true);
+
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signOperatorBurn(alice, net, keccak256("reason"), 0, deadline);
+
+        vm.prank(burnOperator);
+        burner.operatorBurn(alice, net, keccak256("reason"), deadline, sig);
+
+        assertEq(token.balanceOf(alice), 0, "sanctioned wallet clawed back");
+    }
+
+    function test_operatorBurn_worksWhilePaused() public {
+        uint256 net = _mintTokens(alice, 50 * 1e18);
+        _freeze(alice);
+
+        // Pause the token: normal transfers/burns are blocked, but the emergency
+        // compliance clawback must still execute.
+        vm.prank(pauser);
+        token.pause();
+        assertTrue(token.paused());
+
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signOperatorBurn(alice, net, keccak256("reason"), 0, deadline);
+
+        vm.prank(burnOperator);
+        burner.operatorBurn(alice, net, keccak256("reason"), deadline, sig);
+
+        assertEq(token.balanceOf(alice), 0, "clawback executes while paused");
+    }
+
+    function test_operatorBurn_noAllowanceRequired() public {
+        // _mintTokens approves the burner; revoke that approval to prove operatorBurn
+        // does not rely on an allowance from the (non-cooperative) target.
+        uint256 net = _mintTokens(alice, 50 * 1e18);
+        vm.prank(alice);
+        token.approve(address(burner), 0);
+        _freeze(alice);
+
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signOperatorBurn(alice, net, keccak256("reason"), 0, deadline);
+
+        vm.prank(burnOperator);
+        burner.operatorBurn(alice, net, keccak256("reason"), deadline, sig);
+        assertEq(token.balanceOf(alice), 0);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // reqId binding: redemptionType + deliveryRef
+    // ──────────────────────────────────────────────────────────────────────
+
+    function test_requestRedemption_redemptionTypeProducesDistinctReqIds() public {
+        // Mint enough for two physical-min redemptions.
+        uint256 net = _mintTokens(alice, 400 * 1e18);
+        vm.prank(alice);
+        token.approve(address(burner), net);
+
+        bytes32 orderId = keccak256("same-order");
+        IBurnController.RedemptionRequest memory reqCash = IBurnController.RedemptionRequest({
+            from: alice,
+            amount: 100 * 1e18,
+            redemptionType: IBurnController.RedemptionType.CASH_BACK,
+            offChainOrderId: orderId,
+            deliveryRef: "ref"
+        });
+        IBurnController.RedemptionRequest memory reqPhys = IBurnController.RedemptionRequest({
+            from: alice,
+            amount: 100 * 1e18,
+            redemptionType: IBurnController.RedemptionType.PHYSICAL,
+            offChainOrderId: orderId,
+            deliveryRef: "ref"
+        });
+
+        vm.prank(burnOperator);
+        bytes32 id1 = burner.requestRedemption(reqCash);
+        vm.prank(burnOperator);
+        bytes32 id2 = burner.requestRedemption(reqPhys);
+
+        assertTrue(id1 != id2, "differing redemptionType yields different reqId");
+        assertEq(id1, _reqId(reqCash));
+        assertEq(id2, _reqId(reqPhys));
+        // Both executed successfully.
+        (, bool e1,) = burner.getRedemption(id1);
+        (, bool e2,) = burner.getRedemption(id2);
+        assertTrue(e1 && e2, "both redemptions executed");
+    }
+
+    function test_requestRedemption_deliveryRefProducesDistinctReqIds() public {
+        uint256 net = _mintTokens(alice, 400 * 1e18);
+        vm.prank(alice);
+        token.approve(address(burner), net);
+
+        bytes32 orderId = keccak256("order-x");
+        IBurnController.RedemptionRequest memory reqA = IBurnController.RedemptionRequest({
+            from: alice,
+            amount: 100 * 1e18,
+            redemptionType: IBurnController.RedemptionType.CASH_BACK,
+            offChainOrderId: orderId,
+            deliveryRef: "IBAN-A"
+        });
+        IBurnController.RedemptionRequest memory reqB = IBurnController.RedemptionRequest({
+            from: alice,
+            amount: 100 * 1e18,
+            redemptionType: IBurnController.RedemptionType.CASH_BACK,
+            offChainOrderId: orderId,
+            deliveryRef: "IBAN-B"
+        });
+
+        vm.prank(burnOperator);
+        bytes32 id1 = burner.requestRedemption(reqA);
+        vm.prank(burnOperator);
+        bytes32 id2 = burner.requestRedemption(reqB);
+
+        assertTrue(id1 != id2, "differing deliveryRef yields different reqId");
     }
 
     function test_operatorBurn_invalidSignerReverts() public {

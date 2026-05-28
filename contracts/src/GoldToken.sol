@@ -36,7 +36,18 @@ contract GoldToken is
         address complianceRegistry;
         address mintController;
         address burnController;
+        // ── Upgrade timelock (appended at END to preserve storage layout) ──
+        uint256 upgradeDelay;           // required delay between schedule and execute (seconds)
+        address scheduledImpl;          // implementation scheduled for upgrade
+        uint256 scheduledAt;            // timestamp the scheduled impl became eligible (schedule time)
+        // ── Operator-burn pause bypass flag ──
+        // Set only for the duration of a single operatorBurnFrom() call so that the
+        // compliance clawback can execute the burn even while the token is paused.
+        bool operatorBurnInProgress;
     }
+
+    /// @dev Default upgrade timelock: 48 hours.
+    uint256 private constant DEFAULT_UPGRADE_DELAY = 48 hours;
 
     // keccak256(abi.encode(uint256(keccak256("gold.token.storage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant STORAGE_LOCATION =
@@ -76,7 +87,9 @@ contract GoldToken is
         _grantRole(Roles.UPGRADER_ROLE, treasury);
         _grantRole(Roles.PAUSER_ROLE, pauser);
 
-        _getStorage().complianceRegistry = complianceRegistry_;
+        GoldTokenStorage storage $ = _getStorage();
+        $.complianceRegistry = complianceRegistry_;
+        $.upgradeDelay = DEFAULT_UPGRADE_DELAY;
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -84,12 +97,19 @@ contract GoldToken is
     // ──────────────────────────────────────────────────────────────────────
 
     /// @dev OZ v5: the _update hook covers all transfer, mint, and burn paths.
+    ///      Pause is enforced here (rather than via the whenNotPaused modifier) so that
+    ///      the emergency compliance clawback (operatorBurnFrom) can bypass the pause gate
+    ///      while still being subject to all other invariants.
     function _update(address from, address to, uint256 value)
         internal
         override(ERC20Upgradeable)
-        whenNotPaused
     {
         GoldTokenStorage storage $ = _getStorage();
+
+        // Pause gate — bypassed only during an in-progress operator (clawback) burn.
+        if (paused() && !$.operatorBurnInProgress) {
+            revert EnforcedPause();
+        }
 
         if (from != address(0) && to != address(0)) {
             // Transfer: compliance gate
@@ -134,6 +154,27 @@ contract GoldToken is
         // Pull-burn: user must have approved the burn controller
         _spendAllowance(from, msg.sender, amount);
         _burn(from, amount);
+        emit Burned(from, amount);
+    }
+
+    /// @notice Emergency compliance clawback burn, callable only by the burn controller.
+    /// @dev This path exists to support BurnController.operatorBurn, an emergency
+    ///      compliance/clawback tool (e.g. reversing a sanctioned/frozen wallet's balance
+    ///      under dual control). Unlike burnFrom it:
+    ///        - does NOT require an ERC-20 allowance (the target is non-cooperative), and
+    ///        - executes even while the token is PAUSED, because freezing all transfers
+    ///          must not also block the compliance remediation that pause is protecting.
+    ///      All compliance-policy gating for this path lives in BurnController.operatorBurn
+    ///      (dual-control compliance-officer signature + clawback eligibility check).
+    function operatorBurnFrom(address from, uint256 amount) external {
+        GoldTokenStorage storage $ = _getStorage();
+        if (msg.sender != $.burnController) revert Errors.NotAuthorized();
+        if (amount == 0) revert Errors.ZeroAmount();
+
+        $.operatorBurnInProgress = true;
+        _burn(from, amount);
+        $.operatorBurnInProgress = false;
+
         emit Burned(from, amount);
     }
 
@@ -197,14 +238,63 @@ contract GoldToken is
     // Upgrade (UUPS)
     // ──────────────────────────────────────────────────────────────────────
 
-    /// @dev Upgrade authorisation is enforced by the Timelock Treasury Safe off-chain;
-    ///      this function validates the on-chain role only.
+    /// @notice Schedule an implementation for upgrade. UPGRADER_ROLE only.
+    /// @dev The scheduled implementation may only be applied (via upgradeToAndCall)
+    ///      after `upgradeDelay` seconds have elapsed. Scheduling a new implementation
+    ///      overwrites any previously scheduled one and resets the timer.
+    function scheduleUpgrade(address newImpl) external onlyRole(Roles.UPGRADER_ROLE) {
+        if (newImpl == address(0)) revert Errors.ZeroAddress();
+        GoldTokenStorage storage $ = _getStorage();
+        $.scheduledImpl = newImpl;
+        $.scheduledAt = block.timestamp;
+        emit UpgradeScheduled(newImpl, block.timestamp + $.upgradeDelay);
+    }
+
+    /// @notice Cancel a previously scheduled upgrade. UPGRADER_ROLE only.
+    function cancelScheduledUpgrade() external onlyRole(Roles.UPGRADER_ROLE) {
+        GoldTokenStorage storage $ = _getStorage();
+        address cancelled = $.scheduledImpl;
+        $.scheduledImpl = address(0);
+        $.scheduledAt = 0;
+        emit UpgradeCancelled(cancelled);
+    }
+
+    /// @notice Update the upgrade timelock delay (seconds). TREASURY_ROLE only.
+    function setUpgradeDelay(uint256 newDelay) external onlyRole(Roles.TREASURY_ROLE) {
+        _getStorage().upgradeDelay = newDelay;
+        emit UpgradeDelayUpdated(newDelay);
+    }
+
+    function upgradeDelay() external view returns (uint256) {
+        return _getStorage().upgradeDelay;
+    }
+
+    function scheduledUpgrade() external view returns (address impl, uint256 scheduledAt) {
+        GoldTokenStorage storage $ = _getStorage();
+        return ($.scheduledImpl, $.scheduledAt);
+    }
+
+    /// @dev Enforces both the UPGRADER_ROLE and the on-chain upgrade timelock. The target
+    ///      implementation must have been scheduled via scheduleUpgrade() at least
+    ///      `upgradeDelay` seconds earlier. Once applied, the schedule slot is cleared so
+    ///      the same window cannot be reused for a different (unscheduled) implementation.
     function _authorizeUpgrade(address newImpl)
         internal
         override
         onlyRole(Roles.UPGRADER_ROLE)
     {
         if (newImpl == address(0)) revert Errors.ZeroAddress();
+        GoldTokenStorage storage $ = _getStorage();
+        if ($.scheduledImpl != newImpl || $.scheduledAt == 0) {
+            revert Errors.UpgradeNotTimelocked();
+        }
+        uint256 eligibleAt = $.scheduledAt + $.upgradeDelay;
+        if (block.timestamp < eligibleAt) {
+            revert Errors.UpgradeTimelockActive(eligibleAt);
+        }
+        // Consume the schedule so it cannot be replayed.
+        $.scheduledImpl = address(0);
+        $.scheduledAt = 0;
     }
 
     // ──────────────────────────────────────────────────────────────────────
