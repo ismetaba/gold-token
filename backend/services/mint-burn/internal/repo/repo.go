@@ -12,11 +12,28 @@ import (
 	"github.com/ismetaba/gold-token/backend/services/mint-burn/internal/domain"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ErrNoPending döner: polling sırasında işlenecek saga yok.
 var ErrNoPending = errors.New("no pending saga")
+
+// Querier is the subset of pgx shared by *pgxpool.Pool and pgx.Tx, so the same
+// statements can run directly or inside a transaction.
+type Querier interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// OutboxEvent is an event staged for publication in the transactional outbox.
+type OutboxEvent struct {
+	EventID     uuid.UUID
+	Subject     string
+	AggregateID string
+	Payload     []byte
+}
 
 // SagaRepo saga_instances tablosuna erişim.
 type SagaRepo interface {
@@ -24,6 +41,10 @@ type SagaRepo interface {
 	ByID(ctx context.Context, id uuid.UUID) (*domain.Saga, error)
 	NextPending(ctx context.Context) (*domain.Saga, error)
 	UpdateState(ctx context.Context, s *domain.Saga) error
+	// UpdateStateAndEnqueue persists the state change AND stages evt in the
+	// outbox in a single transaction, so an event can never be lost after the
+	// state that produced it has been committed. evt may be nil.
+	UpdateStateAndEnqueue(ctx context.Context, s *domain.Saga, evt *OutboxEvent) error
 }
 
 // BarRepo gold_bars ve bar_allocations erişimi.
@@ -98,7 +119,30 @@ func (r *pgSagaRepo) NextPending(ctx context.Context) (*domain.Saga, error) {
 }
 
 func (r *pgSagaRepo) UpdateState(ctx context.Context, s *domain.Saga) error {
-	const q = `
+	return execUpdateState(ctx, r.pool, s)
+}
+
+// UpdateStateAndEnqueue commits the state change and the outbox row together.
+func (r *pgSagaRepo) UpdateStateAndEnqueue(ctx context.Context, s *domain.Saga, evt *OutboxEvent) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := execUpdateState(ctx, tx, s); err != nil {
+		return err
+	}
+	if evt != nil {
+		if err := enqueueOutbox(ctx, tx, evt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func execUpdateState(ctx context.Context, q Querier, s *domain.Saga) error {
+	const sql = `
 		UPDATE mint.saga_instances
 		SET state = $2,
 		    context = $3,
@@ -112,7 +156,69 @@ func (r *pgSagaRepo) UpdateState(ctx context.Context, s *domain.Saga) error {
 		now := time.Now().UTC()
 		completedAt = &now
 	}
-	_, err := r.pool.Exec(ctx, q, s.ID, s.State, &s.Context, time.Now().UTC(), completedAt)
+	_, err := q.Exec(ctx, sql, s.ID, s.State, &s.Context, time.Now().UTC(), completedAt)
+	return err
+}
+
+func enqueueOutbox(ctx context.Context, q Querier, e *OutboxEvent) error {
+	const sql = `
+		INSERT INTO mint.outbox (id, aggregate_id, subject, payload)
+		VALUES ($1, $2, $3, $4)
+	`
+	_, err := q.Exec(ctx, sql, e.EventID, e.AggregateID, e.Subject, e.Payload)
+	return err
+}
+
+// ── Outbox repo ────────────────────────────────────────────────────────────
+
+// OutboxRow is an unpublished event read back from the outbox by the relay.
+type OutboxRow struct {
+	ID          uuid.UUID
+	Subject     string
+	AggregateID string
+	Payload     []byte
+}
+
+// OutboxRepo reads and acknowledges staged events for the relay.
+type OutboxRepo interface {
+	FetchUnpublished(ctx context.Context, limit int) ([]OutboxRow, error)
+	MarkPublished(ctx context.Context, id uuid.UUID) error
+}
+
+type pgOutboxRepo struct{ pool *pgxpool.Pool }
+
+// NewPGOutboxRepo constructs the outbox repo.
+func NewPGOutboxRepo(pool *pgxpool.Pool) OutboxRepo { return &pgOutboxRepo{pool: pool} }
+
+func (r *pgOutboxRepo) FetchUnpublished(ctx context.Context, limit int) ([]OutboxRow, error) {
+	const q = `
+		SELECT id, subject, aggregate_id, payload
+		FROM mint.outbox
+		WHERE published_at IS NULL
+		ORDER BY created_at ASC
+		LIMIT $1
+		FOR UPDATE SKIP LOCKED
+	`
+	rows, err := r.pool.Query(ctx, q, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []OutboxRow
+	for rows.Next() {
+		var row OutboxRow
+		if err := rows.Scan(&row.ID, &row.Subject, &row.AggregateID, &row.Payload); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r *pgOutboxRepo) MarkPublished(ctx context.Context, id uuid.UUID) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE mint.outbox SET published_at = now() WHERE id = $1`, id)
 	return err
 }
 

@@ -37,23 +37,21 @@ type Config struct {
 // Orchestrator is the saga worker. One instance per service process;
 // multiple instances coordinate via DB row locks.
 type Orchestrator struct {
-	sagas  repo.SagaRepo
-	bars   repo.BarRepo
-	mc     chain.MintControllerClient
-	bus    *events.Bus
-	log    *zap.Logger
-	cfg    Config
+	sagas repo.SagaRepo
+	bars  repo.BarRepo
+	mc    chain.MintControllerClient
+	log   *zap.Logger
+	cfg   Config
 }
 
 func NewOrchestrator(
 	sagas repo.SagaRepo,
 	bars repo.BarRepo,
 	mc chain.MintControllerClient,
-	bus *events.Bus,
 	log *zap.Logger,
 	cfg Config,
 ) *Orchestrator {
-	return &Orchestrator{sagas: sagas, bars: bars, mc: mc, bus: bus, log: log, cfg: cfg}
+	return &Orchestrator{sagas: sagas, bars: bars, mc: mc, log: log, cfg: cfg}
 }
 
 // CreateMintSaga, Order Service'den gelen `order.ready_to_mint` event'ine yanıt.
@@ -212,10 +210,27 @@ func (o *Orchestrator) onExecuting(ctx context.Context, s *domain.Saga) error {
 		return o.compensate(ctx, s, domain.StateFailed, err, "execute_failed")
 	}
 	s.Context.ExecuteTxHash = txHash
-	if err := o.advance(ctx, s, domain.StateCompleted); err != nil {
+
+	// Atomically mark completed and stage the executed event in the outbox, so
+	// the event cannot be lost once completion is committed.
+	if err := domain.MintStateTransition(s.State, domain.StateCompleted); err != nil {
 		return err
 	}
-	return o.publishMintExecuted(ctx, s)
+	evt, err := buildMintExecutedEvent(s)
+	if err != nil {
+		return fmt.Errorf("build executed event: %w", err)
+	}
+	from := s.State
+	s.State = domain.StateCompleted
+	if err := o.sagas.UpdateStateAndEnqueue(ctx, s, evt); err != nil {
+		return fmt.Errorf("persist completion: %w", err)
+	}
+	o.log.Info("saga advanced",
+		zap.String("saga_id", s.ID.String()),
+		zap.String("from", string(from)),
+		zap.String("to", string(domain.StateCompleted)),
+	)
+	return nil
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -278,7 +293,12 @@ func (o *Orchestrator) compensate(
 	s.Context.LastError = cause.Error()
 	s.Context.LastErrorCode = errorCode
 	s.Context.LastErrorAt = time.Now().UTC()
-	if err := o.sagas.UpdateState(ctx, s); err != nil {
+
+	evt, err := buildMintFailedEvent(s, errorCode)
+	if err != nil {
+		return fmt.Errorf("build failed event: %w", err)
+	}
+	if err := o.sagas.UpdateStateAndEnqueue(ctx, s, evt); err != nil {
 		return fmt.Errorf("update compensate state: %w", err)
 	}
 	o.log.Warn("saga compensated",
@@ -286,11 +306,11 @@ func (o *Orchestrator) compensate(
 		zap.String("failure_state", string(failureState)),
 		zap.String("cause", cause.Error()),
 	)
-	return o.publishMintFailed(ctx, s, errorCode)
+	return nil
 }
 
-// publishMintExecuted → gold.mint.executed.v1
-func (o *Orchestrator) publishMintExecuted(ctx context.Context, s *domain.Saga) error {
+// buildMintExecutedEvent stages a gold.mint.executed.v1 event for the outbox.
+func buildMintExecutedEvent(s *domain.Saga) (*repo.OutboxEvent, error) {
 	type payload struct {
 		SagaID       string `json:"saga_id"`
 		OrderID      string `json:"order_id"`
@@ -300,7 +320,7 @@ func (o *Orchestrator) publishMintExecuted(ctx context.Context, s *domain.Saga) 
 		ToAddress    string `json:"to_address"` // 0x-prefixed; wallet service uses this to attribute the tx
 	}
 	to := s.Context.MintReq.To
-	return events.Publish(ctx, o.bus, events.Envelope[payload]{
+	id, body, err := events.BuildEnvelope(events.Envelope[payload]{
 		EventType:     events.SubjMintExecuted,
 		AggregateID:   s.ID.String(),
 		CorrelationID: s.ID.String(),
@@ -313,17 +333,21 @@ func (o *Orchestrator) publishMintExecuted(ctx context.Context, s *domain.Saga) 
 			ToAddress:    fmt.Sprintf("0x%x", to[:]),
 		},
 	})
+	if err != nil {
+		return nil, err
+	}
+	return &repo.OutboxEvent{EventID: id, Subject: events.SubjMintExecuted, AggregateID: s.ID.String(), Payload: body}, nil
 }
 
-// publishMintFailed → gold.mint.failed.v1
-func (o *Orchestrator) publishMintFailed(ctx context.Context, s *domain.Saga, code string) error {
+// buildMintFailedEvent stages a gold.mint.failed.v1 event for the outbox.
+func buildMintFailedEvent(s *domain.Saga, code string) (*repo.OutboxEvent, error) {
 	type payload struct {
 		SagaID    string `json:"saga_id"`
 		OrderID   string `json:"order_id"`
 		ErrorCode string `json:"error_code"`
 		Message   string `json:"message"`
 	}
-	return events.Publish(ctx, o.bus, events.Envelope[payload]{
+	id, body, err := events.BuildEnvelope(events.Envelope[payload]{
 		EventType:     events.SubjMintFailed,
 		AggregateID:   s.ID.String(),
 		CorrelationID: s.ID.String(),
@@ -334,6 +358,10 @@ func (o *Orchestrator) publishMintFailed(ctx context.Context, s *domain.Saga, co
 			Message:   s.Context.LastError,
 		},
 	})
+	if err != nil {
+		return nil, err
+	}
+	return &repo.OutboxEvent{EventID: id, Subject: events.SubjMintFailed, AggregateID: s.ID.String(), Payload: body}, nil
 }
 
 // ──────────────────────────────────────────────────────────────────────

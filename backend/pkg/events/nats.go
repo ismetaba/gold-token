@@ -107,6 +107,42 @@ func Publish[T any](ctx context.Context, b *Bus, env Envelope[T]) error {
 	return nil
 }
 
+// BuildEnvelope fills in the default envelope fields (EventID, OccurredAt,
+// Version) and marshals it to JSON, returning the event ID and bytes. It is
+// used to stage an event in a transactional outbox so the event is persisted
+// atomically with the state change that produced it, then published later by a
+// relay (see PublishRaw).
+func BuildEnvelope[T any](env Envelope[T]) (uuid.UUID, []byte, error) {
+	if env.EventID == uuid.Nil {
+		env.EventID = uuid.Must(uuid.NewV7())
+	}
+	if env.OccurredAt.IsZero() {
+		env.OccurredAt = time.Now().UTC()
+	}
+	if env.Version == 0 {
+		env.Version = 1
+	}
+	b, err := json.Marshal(env)
+	if err != nil {
+		return uuid.Nil, nil, fmt.Errorf("marshal envelope: %w", err)
+	}
+	return env.EventID, b, nil
+}
+
+// PublishRaw publishes a pre-marshalled payload to subject. msgID is set as the
+// JetStream dedup key (Msg-Id), so re-publishing the same outbox row is
+// idempotent.
+func (b *Bus) PublishRaw(ctx context.Context, subject, msgID string, payload []byte) error {
+	msg := &nats.Msg{Subject: subject, Data: payload, Header: nats.Header{}}
+	if msgID != "" {
+		msg.Header.Set(jetstream.MsgIDHeader, msgID)
+	}
+	if _, err := b.js.PublishMsg(ctx, msg); err != nil {
+		return fmt.Errorf("publish raw: %w", err)
+	}
+	return nil
+}
+
 // Subscribe creates a durable consumer for the given subject and handler.
 // Handler errors cause the message to be NAK'd for retry.
 func (b *Bus) Subscribe(

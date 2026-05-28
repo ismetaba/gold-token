@@ -29,6 +29,7 @@ import (
 	"github.com/ismetaba/gold-token/backend/services/mint-burn/internal/config"
 	mbevents "github.com/ismetaba/gold-token/backend/services/mint-burn/internal/events"
 	mbhttp "github.com/ismetaba/gold-token/backend/services/mint-burn/internal/http"
+	"github.com/ismetaba/gold-token/backend/services/mint-burn/internal/outbox"
 	"github.com/ismetaba/gold-token/backend/services/mint-burn/internal/repo"
 	"github.com/ismetaba/gold-token/backend/services/mint-burn/internal/saga"
 )
@@ -83,24 +84,34 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 	// 4. Repos
 	var sagaRepo repo.SagaRepo
 	var barRepo repo.BarRepo
+	var outboxRepo repo.OutboxRepo
 	if pool != nil {
 		sagaRepo = repo.NewPGSagaRepo(pool)
 		barRepo = repo.NewPGBarRepo(pool)
+		outboxRepo = repo.NewPGOutboxRepo(pool)
 	}
 
 	// 5. Orchestrator
-	orch := saga.NewOrchestrator(sagaRepo, barRepo, mc, bus, log, saga.Config{
+	orch := saga.NewOrchestrator(sagaRepo, barRepo, mc, log, saga.Config{
 		ApprovalTimeout:   cfg.ApprovalTimeout,
 		StepPollInterval:  cfg.StepPollInterval,
 		MaxAttempts:       cfg.MaxAttempts,
 		ApprovalThreshold: cfg.ApprovalThreshold,
 	})
 
-	// 6. Event consumer
+	// 6. Event consumer + transactional-outbox relay
 	if bus != nil {
 		cons := mbevents.NewConsumer(bus, orch, log, cfg.NATSStream)
 		if err := cons.Start(ctx); err != nil {
 			return err
+		}
+		if outboxRepo != nil {
+			relay := outbox.NewRelay(outboxRepo, bus, log, cfg.StepPollInterval)
+			go func() {
+				if err := relay.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+					log.Error("outbox relay exited", zap.Error(err))
+				}
+			}()
 		}
 	}
 
