@@ -18,7 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -30,6 +29,7 @@ import (
 	pkgchain "github.com/ismetaba/gold-token/backend/pkg/chain"
 	pkgevents "github.com/ismetaba/gold-token/backend/pkg/events"
 	"github.com/ismetaba/gold-token/backend/pkg/obs"
+	"github.com/ismetaba/gold-token/backend/pkg/server"
 	pkgsigner "github.com/ismetaba/gold-token/backend/pkg/signer"
 
 	porchain "github.com/ismetaba/gold-token/backend/services/por/internal/chain"
@@ -183,32 +183,8 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 		log,
 	)
 
-	srv := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           handlers.Routes(cfg.Env),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
-	}
-
-	errCh := make(chan error, 1)
-	go func() {
-		log.Info("http listen", zap.String("addr", cfg.HTTPAddr))
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
-
-	select {
-	case err := <-errCh:
-		return err
-	case <-ctx.Done():
-		log.Info("shutting down")
-		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutCtx)
-		return nil
-	}
+	srv := server.NewHTTPServer(cfg.HTTPAddr, handlers.Routes(cfg.Env), server.DefaultTimeouts())
+	return server.Serve(ctx, srv, log, 10*time.Second)
 }
 
 // buildOracleWriter constructs an OracleWriter when the chain is configured.

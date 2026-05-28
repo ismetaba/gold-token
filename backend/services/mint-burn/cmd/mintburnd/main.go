@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -23,6 +22,7 @@ import (
 	pkgchain "github.com/ismetaba/gold-token/backend/pkg/chain"
 	pkgevents "github.com/ismetaba/gold-token/backend/pkg/events"
 	"github.com/ismetaba/gold-token/backend/pkg/obs"
+	"github.com/ismetaba/gold-token/backend/pkg/server"
 	pkgsigner "github.com/ismetaba/gold-token/backend/pkg/signer"
 
 	"github.com/ismetaba/gold-token/backend/services/mint-burn/internal/chain"
@@ -115,45 +115,21 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 		}
 	}
 
-	// 7. HTTP server
-	handlers := mbhttp.NewHandlers(sagaRepo, log)
-	srv := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           handlers.Routes(cfg.Env),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
-	}
-
-	// 8. Start saga worker + HTTP server in parallel
-	errCh := make(chan error, 2)
-	go func() {
-		log.Info("http listen", zap.String("addr", cfg.HTTPAddr))
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
+	// 7. Start saga worker in the background; it stops on ctx cancellation.
 	go func() {
 		log.Info("saga worker started",
 			zap.Duration("poll_interval", cfg.StepPollInterval),
 			zap.Duration("approval_timeout", cfg.ApprovalTimeout),
 		)
 		if err := orch.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			errCh <- err
+			log.Error("saga worker exited", zap.Error(err))
 		}
 	}()
 
-	// 9. Graceful shutdown
-	select {
-	case err := <-errCh:
-		return err
-	case <-ctx.Done():
-		log.Info("shutting down")
-		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutCtx)
-		return nil
-	}
+	// 8. HTTP server
+	handlers := mbhttp.NewHandlers(sagaRepo, log)
+	srv := server.NewHTTPServer(cfg.HTTPAddr, handlers.Routes(cfg.Env), server.DefaultTimeouts())
+	return server.Serve(ctx, srv, log, 10*time.Second)
 }
 
 // buildMintControllerClient returns a real EthMintControllerClient when
