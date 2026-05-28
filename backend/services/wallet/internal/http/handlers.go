@@ -3,7 +3,6 @@ package http
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -319,13 +318,11 @@ func (h *Handlers) listTransactions(w http.ResponseWriter, r *http.Request) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
+	httputil.WriteJSON(w, code, v)
 }
 
 func writeErr(w http.ResponseWriter, code int, errCode, msg string) {
-	writeJSON(w, code, map[string]string{"error": errCode, "message": msg})
+	httputil.WriteError(w, code, errCode, msg)
 }
 
 func queryInt(r *http.Request, key string, def int) int {
