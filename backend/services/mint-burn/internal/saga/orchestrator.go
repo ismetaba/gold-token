@@ -13,6 +13,7 @@ package saga
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -27,9 +28,10 @@ import (
 
 // Config tunables. Loaded at service start.
 type Config struct {
-	ApprovalTimeout    time.Duration // e.g. 4h
-	StepPollInterval   time.Duration // e.g. 2s
-	MaxAttempts        int           // per-step retry cap (e.g. 5)
+	ApprovalTimeout   time.Duration // e.g. 4h
+	StepPollInterval  time.Duration // e.g. 2s
+	MaxAttempts       int           // per-step retry cap (e.g. 5)
+	ApprovalThreshold int           // on-chain approvals required before execute (e.g. 3)
 }
 
 // Orchestrator is the saga worker. One instance per service process;
@@ -101,9 +103,13 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 func (o *Orchestrator) tickOnce(ctx context.Context) (advanced bool, err error) {
 	s, err := o.sagas.NextPending(ctx)
 	if err != nil {
-		// "no rows" benzeri bir hata normal; "no pending saga" yolu Faz 1'de
-		// repo'ya eklenir. Şimdilik log atla.
-		return false, nil
+		// An empty queue is the normal, expected case and is not an error.
+		// Anything else (connection loss, scan failure, ...) must surface so
+		// the critical mint path does not silently stall.
+		if errors.Is(err, repo.ErrNoPending) {
+			return false, nil
+		}
+		return false, fmt.Errorf("next pending saga: %w", err)
 	}
 	return true, o.step(ctx, s)
 }
@@ -188,8 +194,8 @@ func (o *Orchestrator) onAwaitingApprovals(ctx context.Context, s *domain.Saga) 
 	if err != nil {
 		return fmt.Errorf("read approval count: %w", err)
 	}
-	if count < 3 {
-		// Geri dön, sonraki tick'te tekrar bak
+	if int(count) < o.cfg.ApprovalThreshold {
+		// Not enough approvals yet — re-check on the next tick.
 		return o.touch(ctx, s)
 	}
 	return o.advance(ctx, s, domain.StateExecuting)
@@ -199,8 +205,8 @@ func (o *Orchestrator) onExecuting(ctx context.Context, s *domain.Saga) error {
 	pid := chain.AllocationIDFromUUID(s.Context.MintReq.AllocationID)
 	txHash, err := o.mc.ExecuteMint(ctx, pid)
 	if err != nil {
-		// Reserve invariant ihlali ayrı state'e gitmeli.
-		if err == chain.ErrReserveInvariant {
+		// Reserve invariant violations get a dedicated failure state.
+		if errors.Is(err, chain.ErrReserveInvariant) {
 			return o.compensate(ctx, s, domain.StateFailedReserveInvariant, err, "reserve_invariant")
 		}
 		return o.compensate(ctx, s, domain.StateFailed, err, "execute_failed")

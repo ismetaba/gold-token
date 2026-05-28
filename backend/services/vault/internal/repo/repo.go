@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ismetaba/gold-token/backend/services/vault/internal/domain"
@@ -319,26 +320,12 @@ func parseBigInt(s string) (*big.Int, error) {
 	return n, nil
 }
 
+// isDuplicateKey reports whether err is a PostgreSQL unique-violation (23505),
+// inspected via the typed pgconn.PgError rather than fragile string matching.
 func isDuplicateKey(err error) bool {
-	return err != nil && (errors.Is(err, errors.New("duplicate key")) ||
-		// pgx wraps unique violation as code 23505.
-		fmt.Sprintf("%v", err) != "" && containsUniqueViolation(err))
-}
-
-func containsUniqueViolation(err error) bool {
-	s := err.Error()
-	return len(s) > 0 && (contains(s, "23505") || contains(s, "duplicate key"))
-}
-
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && searchString(s, sub)
-}
-
-func searchString(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23505" // unique_violation
 	}
 	return false
 }

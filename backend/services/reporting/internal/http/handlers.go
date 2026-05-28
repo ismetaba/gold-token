@@ -141,9 +141,13 @@ func (h *Handlers) generate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// runJob executes a report job in the background and updates its status.
+// runJob executes a report job in the background and updates its status. It
+// intentionally uses a fresh context (not the request's, which is cancelled
+// once the response is sent) but bounds it with a timeout so a stuck
+// generation cannot run — or hold resources — indefinitely.
 func (h *Handlers) runJob(job domain.ReportJob) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
 
 	running := "running"
 	_ = h.jobs.UpdateStatus(ctx, job.ID, running, "", nil)

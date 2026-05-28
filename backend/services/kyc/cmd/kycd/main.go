@@ -72,7 +72,7 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 	}
 
 	// 3. JWT verifier (public-key only; no signing needed)
-	verifier, err := jwtverify.New(cfg.JWTPublicKeyFile)
+	verifier, err := jwtverify.New(cfg.JWTPublicKeyFile, cfg.Env)
 	if err != nil {
 		return err
 	}

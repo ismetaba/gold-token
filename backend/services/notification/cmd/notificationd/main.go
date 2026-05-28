@@ -68,12 +68,14 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 	// JWT verifier for user auth.
 	var verifyFunc func(string) (uuid.UUID, error)
 	if cfg.JWTPublicKeyFile != "" {
-		v, err := jwtverify.NewVerifier(cfg.JWTPublicKeyFile)
+		v, err := jwtverify.NewVerifier(cfg.JWTPublicKeyFile, cfg.Env)
 		if err != nil {
-			log.Warn("JWT verifier init failed — auth disabled", zap.Error(err))
-		} else {
-			verifyFunc = v.VerifyAccess
+			// Fail fast rather than silently running with auth disabled.
+			return err
 		}
+		verifyFunc = v.VerifyAccess
+	} else if cfg.Env != "local" {
+		return errors.New("JWT_PUBLIC_KEY_FILE is required outside local env (refusing to run with auth disabled)")
 	}
 
 	var (

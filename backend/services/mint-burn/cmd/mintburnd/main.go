@@ -90,9 +90,10 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 
 	// 5. Orchestrator
 	orch := saga.NewOrchestrator(sagaRepo, barRepo, mc, bus, log, saga.Config{
-		ApprovalTimeout:  cfg.ApprovalTimeout,
-		StepPollInterval: cfg.StepPollInterval,
-		MaxAttempts:      cfg.MaxAttempts,
+		ApprovalTimeout:   cfg.ApprovalTimeout,
+		StepPollInterval:  cfg.StepPollInterval,
+		MaxAttempts:       cfg.MaxAttempts,
+		ApprovalThreshold: cfg.ApprovalThreshold,
 	})
 
 	// 6. Event consumer

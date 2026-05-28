@@ -27,10 +27,16 @@ type Verifier struct {
 }
 
 // New loads the RSA public key from publicKeyFile.
-// If publicKeyFile is empty, returns a permissive verifier that skips
-// signature validation (local dev only — config enforces the file in prod).
-func New(publicKeyFile string) (*Verifier, error) {
+//
+// If publicKeyFile is empty the verifier would skip signature validation, which
+// is only acceptable in local development. New therefore refuses to construct a
+// permissive verifier unless env == "local", so a missing key file in any other
+// environment fails fast instead of silently disabling authentication.
+func New(publicKeyFile, env string) (*Verifier, error) {
 	if publicKeyFile == "" {
+		if env != "local" {
+			return nil, fmt.Errorf("jwt public key file is required when GOLD_ENV=%q (refusing insecure permissive mode)", env)
+		}
 		return &Verifier{}, nil
 	}
 	pem, err := os.ReadFile(publicKeyFile)

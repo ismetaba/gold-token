@@ -11,6 +11,7 @@ import (
 
 	"github.com/ismetaba/gold-token/backend/services/mint-burn/internal/domain"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -88,6 +89,9 @@ func (r *pgSagaRepo) NextPending(ctx context.Context) (*domain.Saga, error) {
 		&s.StartedAt, &s.LastStepAt, &s.CompletedAt, &s.Attempts,
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNoPending
+		}
 		return nil, err
 	}
 	return &s, nil

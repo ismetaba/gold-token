@@ -21,8 +21,14 @@ type Verifier struct {
 	publicKey any
 }
 
-func NewVerifier(publicKeyFile string) (*Verifier, error) {
+// NewVerifier loads the RSA public key from publicKeyFile. An empty file would
+// disable signature verification, so that permissive mode is only permitted
+// when env == "local"; otherwise construction fails fast.
+func NewVerifier(publicKeyFile, env string) (*Verifier, error) {
 	if publicKeyFile == "" {
+		if env != "local" {
+			return nil, fmt.Errorf("jwt public key file is required when GOLD_ENV=%q (refusing insecure permissive mode)", env)
+		}
 		return &Verifier{}, nil
 	}
 	pem, err := os.ReadFile(publicKeyFile)
