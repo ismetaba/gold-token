@@ -26,7 +26,7 @@ import (
 	"github.com/ismetaba/gold-token/backend/pkg/server"
 	"github.com/ismetaba/gold-token/backend/services/kyc/internal/config"
 	kychttp "github.com/ismetaba/gold-token/backend/services/kyc/internal/http"
-	"github.com/ismetaba/gold-token/backend/services/kyc/internal/jwtverify"
+	"github.com/ismetaba/gold-token/backend/pkg/jwtverify"
 	"github.com/ismetaba/gold-token/backend/services/kyc/internal/repo"
 	"github.com/ismetaba/gold-token/backend/services/kyc/internal/storage"
 )

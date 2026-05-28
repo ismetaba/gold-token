@@ -30,6 +30,7 @@ import (
 	"go.uber.org/zap"
 
 	pkgevents "github.com/ismetaba/gold-token/backend/pkg/events"
+	"github.com/ismetaba/gold-token/backend/pkg/jwtverify"
 	"github.com/ismetaba/gold-token/backend/pkg/obs"
 	"github.com/ismetaba/gold-token/backend/pkg/server"
 	"github.com/ismetaba/gold-token/backend/services/order/internal/config"
@@ -93,10 +94,11 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 	}
 
 	// 5. HTTP server
-	handlers, err := orderhttp.NewHandlers(orderRepo, bus, cfg.NATSStream, cfg.JWTPublicKeyFile, log)
+	verifier, err := jwtverify.New(cfg.JWTPublicKeyFile, cfg.Env)
 	if err != nil {
 		return err
 	}
+	handlers := orderhttp.NewHandlers(orderRepo, bus, cfg.NATSStream, verifier, log)
 	srv := server.NewHTTPServer(cfg.HTTPAddr, handlers.Routes(cfg.Env), server.DefaultTimeouts())
 	return server.Serve(ctx, srv, log, 10*time.Second)
 }

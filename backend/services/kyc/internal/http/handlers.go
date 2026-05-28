@@ -18,7 +18,7 @@ import (
 	pkgevents "github.com/ismetaba/gold-token/backend/pkg/events"
 	"github.com/ismetaba/gold-token/backend/pkg/httputil"
 	"github.com/ismetaba/gold-token/backend/services/kyc/internal/domain"
-	"github.com/ismetaba/gold-token/backend/services/kyc/internal/jwtverify"
+	"github.com/ismetaba/gold-token/backend/pkg/jwtverify"
 	"github.com/ismetaba/gold-token/backend/services/kyc/internal/repo"
 	"github.com/ismetaba/gold-token/backend/services/kyc/internal/storage"
 )

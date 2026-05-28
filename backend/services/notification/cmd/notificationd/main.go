@@ -21,7 +21,7 @@ import (
 	"github.com/ismetaba/gold-token/backend/services/notification/internal/config"
 	notifevents "github.com/ismetaba/gold-token/backend/services/notification/internal/events"
 	notifhttp "github.com/ismetaba/gold-token/backend/services/notification/internal/http"
-	"github.com/ismetaba/gold-token/backend/services/notification/internal/jwtverify"
+	"github.com/ismetaba/gold-token/backend/pkg/jwtverify"
 	"github.com/ismetaba/gold-token/backend/services/notification/internal/repo"
 )
 
@@ -68,7 +68,7 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 	// JWT verifier for user auth.
 	var verifyFunc func(string) (uuid.UUID, error)
 	if cfg.JWTPublicKeyFile != "" {
-		v, err := jwtverify.NewVerifier(cfg.JWTPublicKeyFile, cfg.Env)
+		v, err := jwtverify.New(cfg.JWTPublicKeyFile, cfg.Env)
 		if err != nil {
 			// Fail fast rather than silently running with auth disabled.
 			return err
