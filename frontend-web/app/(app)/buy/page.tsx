@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ordersApi, priceApi } from "@/lib/api-client";
+import { useState } from "react";
+import { ordersApi } from "@/lib/api-client";
 import { formatGrams, formatTRY } from "@/lib/utils";
-import type { GoldPrice, Order } from "@/lib/types";
+import { usePollingPrice } from "@/lib/hooks/usePollingPrice";
+import type { Order } from "@/lib/types";
 import {
   AlertCircle,
   CheckCircle,
@@ -20,21 +21,12 @@ const PRESET_GRAMS = ["1", "5", "10", "25", "50"];
 
 export default function BuyPage() {
   const { user } = useAuth();
-  const [price, setPrice] = useState<GoldPrice | null>(null);
+  const price = usePollingPrice();
   const [amountGrams, setAmountGrams] = useState("1");
   const [step, setStep] = useState<Step>("form");
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    priceApi.getCurrentPrice().then((r) => setPrice(r.data.price)).catch(() => {});
-    const id = setInterval(
-      () => priceApi.getCurrentPrice().then((r) => setPrice(r.data.price)).catch(() => {}),
-      15_000
-    );
-    return () => clearInterval(id);
-  }, []);
 
   const grams = parseFloat(amountGrams) || 0;
   const totalTRY = price ? (grams * parseFloat(price.pricePerGramTRY)).toFixed(2) : "0";
@@ -49,8 +41,7 @@ export default function BuyPage() {
       setOrder(res.data);
       setStep("confirm");
     } catch (err: unknown) {
-      const e = err as Error;
-      setError(e.message ?? "Sipariş oluşturulamadı.");
+      setError(err instanceof Error ? err.message : "Sipariş oluşturulamadı.");
     } finally {
       setLoading(false);
     }
@@ -66,8 +57,7 @@ export default function BuyPage() {
       setOrder(res.data);
       setStep("status");
     } catch (err: unknown) {
-      const e = err as Error;
-      setError(e.message ?? "Ödeme işlemi başarısız.");
+      setError(err instanceof Error ? err.message : "Ödeme işlemi başarısız.");
       setStep("confirm");
     } finally {
       setLoading(false);

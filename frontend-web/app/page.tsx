@@ -1,23 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { priceApi } from "@/lib/api-client";
 import { formatTRY, formatUSD } from "@/lib/utils";
-import type { GoldPrice } from "@/lib/types";
+import { usePollingPrice } from "@/lib/hooks/usePollingPrice";
 import { ArrowRight, BarChart2, CheckCircle, Lock, Shield, Zap } from "lucide-react";
 
 export default function LandingPage() {
-  const [price, setPrice] = useState<GoldPrice | null>(null);
-
-  useEffect(() => {
-    priceApi.getCurrentPrice().then((r) => setPrice(r.data.price)).catch(() => {});
-    const id = setInterval(
-      () => priceApi.getCurrentPrice().then((r) => setPrice(r.data.price)).catch(() => {}),
-      15_000
-    );
-    return () => clearInterval(id);
-  }, []);
+  const price = usePollingPrice();
 
   return (
     <div className="min-h-screen bg-slate-900 text-white">

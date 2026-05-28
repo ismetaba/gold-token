@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ordersApi, priceApi, walletApi } from "@/lib/api-client";
+import { ordersApi, walletApi } from "@/lib/api-client";
 import { formatGrams, formatTRY } from "@/lib/utils";
-import type { GoldPrice, Order, Wallet } from "@/lib/types";
+import { usePollingPrice } from "@/lib/hooks/usePollingPrice";
+import type { Order, Wallet } from "@/lib/types";
 import { AlertCircle, CheckCircle, ChevronRight, Loader2, TrendingDown } from "lucide-react";
 import StatusBadge from "@/components/StatusBadge";
 
@@ -11,7 +12,7 @@ type Step = "form" | "confirm" | "processing" | "done";
 type RedeemType = "cash" | "physical";
 
 export default function SellPage() {
-  const [price, setPrice] = useState<GoldPrice | null>(null);
+  const price = usePollingPrice();
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [amountGrams, setAmountGrams] = useState("1");
   const [redeemType, setRedeemType] = useState<RedeemType>("cash");
@@ -22,14 +23,13 @@ export default function SellPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    priceApi.getCurrentPrice().then((r) => setPrice(r.data.price)).catch(() => {});
-    walletApi.getWallet().then((r) => setWallet(r.data)).catch(() => {});
-
-    const id = setInterval(
-      () => priceApi.getCurrentPrice().then((r) => setPrice(r.data.price)).catch(() => {}),
-      15_000
-    );
-    return () => clearInterval(id);
+    let ignore = false;
+    walletApi.getWallet().then((r) => {
+      if (!ignore) setWallet(r.data);
+    }).catch(() => {});
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   const grams = parseFloat(amountGrams) || 0;
@@ -51,8 +51,7 @@ export default function SellPage() {
       setOrder(res.data);
       setStep("confirm");
     } catch (err: unknown) {
-      const e = err as Error;
-      setError(e.message ?? "Sipariş oluşturulamadı.");
+      setError(err instanceof Error ? err.message : "Sipariş oluşturulamadı.");
     } finally {
       setLoading(false);
     }
@@ -68,8 +67,7 @@ export default function SellPage() {
       setOrder((o) => o ? { ...o, status: "COMPLETED", completedAt: new Date().toISOString() } : o);
       setStep("done");
     } catch (err: unknown) {
-      const e = err as Error;
-      setError(e.message ?? "İşlem başarısız.");
+      setError(err instanceof Error ? err.message : "İşlem başarısız.");
       setStep("confirm");
     } finally {
       setLoading(false);

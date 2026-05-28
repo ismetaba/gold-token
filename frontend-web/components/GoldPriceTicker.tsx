@@ -1,39 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { priceApi } from "@/lib/api-client";
+import { useEffect, useRef, useState } from "react";
 import { formatTRY, formatUSD } from "@/lib/utils";
-import type { GoldPrice } from "@/lib/types";
+import { usePollingPrice } from "@/lib/hooks/usePollingPrice";
 import { TrendingUp } from "lucide-react";
 
 export default function GoldPriceTicker() {
-  const [price, setPrice] = useState<GoldPrice | null>(null);
-  const [prevPrice, setPrevPrice] = useState<string | null>(null);
+  const price = usePollingPrice();
+  const prevValRef = useRef<number | null>(null);
   const [direction, setDirection] = useState<"up" | "down" | null>(null);
 
+  // Flash an up/down indicator whenever the polled price changes.
   useEffect(() => {
-    const fetchPrice = async () => {
-      try {
-        const res = await priceApi.getCurrentPrice();
-        setPrice((prev) => {
-          if (prev) {
-            const oldVal = parseFloat(prev.pricePerGramTRY);
-            const newVal = parseFloat(res.data.price.pricePerGramTRY);
-            setDirection(newVal >= oldVal ? "up" : "down");
-            setPrevPrice(prev.pricePerGramTRY);
-            setTimeout(() => setDirection(null), 2000);
-          }
-          return res.data.price;
-        });
-      } catch {
-        // ignore fetch errors in ticker
-      }
-    };
-
-    fetchPrice();
-    const interval = setInterval(fetchPrice, 15_000);
-    return () => clearInterval(interval);
-  }, []);
+    if (!price) return;
+    const newVal = parseFloat(price.pricePerGramTRY);
+    if (prevValRef.current !== null && newVal !== prevValRef.current) {
+      setDirection(newVal >= prevValRef.current ? "up" : "down");
+      const id = setTimeout(() => setDirection(null), 2000);
+      prevValRef.current = newVal;
+      return () => clearTimeout(id);
+    }
+    prevValRef.current = newVal;
+  }, [price]);
 
   if (!price) {
     return (

@@ -65,8 +65,14 @@ export default function AdminOverviewPage() {
 
   if (!stats) return null;
 
-  const kycPendingPct = Math.round((stats.kycPendingCount / stats.totalUsers) * 100);
-  const kycApprovedPct = Math.round((stats.kycApprovedCount / stats.totalUsers) * 100);
+  const kycPendingPct =
+    stats.totalUsers > 0
+      ? Math.round((stats.kycPendingCount / stats.totalUsers) * 100)
+      : 0;
+  const kycApprovedPct =
+    stats.totalUsers > 0
+      ? Math.round((stats.kycApprovedCount / stats.totalUsers) * 100)
+      : 0;
 
   return (
     <div className="p-6 md:p-8 max-w-6xl">

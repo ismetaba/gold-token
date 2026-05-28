@@ -2,7 +2,9 @@
 out/
 cache/
 broadcast/
-**/lib/
+# Foundry dependencies live in contracts/lib only; do NOT use a broad **/lib/
+# rule — it silently swallows real source under frontend-web/lib/.
+/contracts/lib/
 coverage.lcov
 
 # ─── Go

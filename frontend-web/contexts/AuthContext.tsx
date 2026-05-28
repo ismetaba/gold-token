@@ -7,7 +7,7 @@ import React, {
   useEffect,
   useState,
 } from "react";
-import { authApi } from "@/lib/api-client";
+import { authApi, setOnAuthFailure } from "@/lib/api-client";
 import type { AuthTokens, User } from "@/lib/types";
 
 interface AuthState {
@@ -94,6 +94,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem(EXPIRES_KEY);
     localStorage.removeItem(USER_KEY);
     setState({ user: null, tokens: null, loading: false });
+  }, []);
+
+  // When the api-client's refresh-and-retry ultimately fails (e.g. refresh
+  // token expired), clear the user/session here too. The api-client has
+  // already removed the tokens from localStorage; this resets in-memory state.
+  useEffect(() => {
+    setOnAuthFailure(() => {
+      localStorage.removeItem(USER_KEY);
+      setState({ user: null, tokens: null, loading: false });
+    });
+    return () => setOnAuthFailure(null);
   }, []);
 
   return (

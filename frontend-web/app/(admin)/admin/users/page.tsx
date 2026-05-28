@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { adminApi } from "@/lib/api-client";
 import type { AdminUserRow, KycStatus } from "@/lib/types";
 import {
@@ -54,19 +54,28 @@ export default function AdminUsersPage() {
   const [reviewResult, setReviewResult] = useState<Record<string, "approved" | "rejected">>({});
   const [reviewError, setReviewError] = useState<string | null>(null);
 
-  const load = async (filter?: KycStatus | "all") => {
+  // Monotonic request token: only the latest load() is allowed to setState,
+  // so a slow response for a previously-selected filter can't clobber a newer
+  // one (or setState after unmount).
+  const requestSeq = useRef(0);
+
+  const load = useCallback(async (filter?: KycStatus | "all") => {
+    const seq = ++requestSeq.current;
     setLoading(true);
-    const res = await adminApi.listUsers(
-      filter && filter !== "all" ? { kycStatus: filter } : undefined
-    );
-    setUsers(res.data);
-    setLoading(false);
-  };
+    try {
+      const res = await adminApi.listUsers(
+        filter && filter !== "all" ? { kycStatus: filter } : undefined
+      );
+      if (seq !== requestSeq.current) return;
+      setUsers(res.data);
+    } finally {
+      if (seq === requestSeq.current) setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     load(kycFilter);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kycFilter]);
+  }, [kycFilter, load]);
 
   const filtered = search.trim()
     ? users.filter(

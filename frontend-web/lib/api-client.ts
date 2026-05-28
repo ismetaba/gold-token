@@ -35,6 +35,21 @@ const API_BASE =
 
 const POC_MOCK = process.env.NEXT_PUBLIC_USE_MOCK === "true";
 
+/**
+ * Approximate TRY → USD conversion rate used for display-only estimates.
+ * POC placeholder; in production this would come from an FX feed.
+ */
+export const TRY_PER_USD = 33;
+
+/** Convert a TRY amount to an approximate USD amount (display only). */
+export function tryToUsd(amountTRY: number): number {
+  return amountTRY / TRY_PER_USD;
+}
+
+const TOKEN_KEY = "gold_access_token";
+const REFRESH_KEY = "gold_refresh_token";
+const EXPIRES_KEY = "gold_token_expires";
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function getArena(): string {
@@ -44,7 +59,62 @@ function getArena(): string {
 
 function getAccessToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("gold_access_token");
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+function getRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(REFRESH_KEY);
+}
+
+/**
+ * Optional callback invoked when a token refresh ultimately fails, so the
+ * auth layer can clear its in-memory state (the tokens are already cleared
+ * from localStorage here). Registered by AuthContext via setOnAuthFailure.
+ */
+let onAuthFailure: (() => void) | null = null;
+
+export function setOnAuthFailure(cb: (() => void) | null): void {
+  onAuthFailure = cb;
+}
+
+/**
+ * Single-flight token refresh. Concurrent 401s share the same in-flight
+ * refresh promise instead of stampeding the refresh endpoint. Resolves to
+ * the new access token, or null if refresh failed.
+ */
+let refreshInFlight: Promise<string | null> | null = null;
+
+function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) return null;
+    try {
+      const res = await authApi.refresh(refreshToken);
+      const tokens = res.data;
+      if (typeof window !== "undefined") {
+        localStorage.setItem(TOKEN_KEY, tokens.accessToken);
+        localStorage.setItem(REFRESH_KEY, tokens.refreshToken);
+        localStorage.setItem(EXPIRES_KEY, String(tokens.expiresAt));
+      }
+      return tokens.accessToken;
+    } catch {
+      // Refresh failed → clear stored tokens (logout).
+      if (typeof window !== "undefined") {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(REFRESH_KEY);
+        localStorage.removeItem(EXPIRES_KEY);
+      }
+      onAuthFailure?.();
+      return null;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+
+  return refreshInFlight;
 }
 
 function apiUrl(path: string): string {
@@ -56,7 +126,8 @@ async function request<T>(
   method: string,
   path: string,
   body?: unknown,
-  extraHeaders?: Record<string, string>
+  extraHeaders?: Record<string, string>,
+  isRetry = false
 ): Promise<T> {
   const token = getAccessToken();
   const headers: Record<string, string> = {
@@ -74,6 +145,21 @@ async function request<T>(
   });
 
   if (!res.ok) {
+    // Access token expired: attempt a single refresh-and-retry. Concurrent
+    // 401s share one refresh (single-flight) via refreshAccessToken().
+    // Skip for the refresh endpoint itself to avoid recursion.
+    if (
+      res.status === 401 &&
+      !isRetry &&
+      getRefreshToken() &&
+      path !== "/auth/refresh"
+    ) {
+      const newToken = await refreshAccessToken();
+      if (newToken) {
+        return request<T>(method, path, body, extraHeaders, true);
+      }
+    }
+
     const err = await res.json().catch(() => ({}));
     throw new ApiClientError(
       err?.error?.code ?? "GOLD.UNKNOWN",
@@ -238,7 +324,7 @@ export const walletApi = {
 // ── Price ─────────────────────────────────────────────────────────────────────
 
 export const priceApi = {
-  async getCurrentPrice(): Promise<ApiResponse<{ price: import("./types").GoldPrice }>> {
+  async getCurrentPrice(): Promise<ApiResponse<{ price: GoldPrice }>> {
     if (POC_MOCK) {
       await delay(200);
       // Simulate slight price movement
@@ -247,8 +333,8 @@ export const priceApi = {
         data: {
           price: {
             pricePerGramTRY: (base).toFixed(2),
-            pricePerGramUSD: (base / 33).toFixed(4),
-            pricePerOzUSD: ((base / 33) * 31.1035).toFixed(2),
+            pricePerGramUSD: tryToUsd(base).toFixed(4),
+            pricePerOzUSD: (tryToUsd(base) * 31.1035).toFixed(2),
             source: "LBMA + Chainlink",
             updatedAt: new Date().toISOString(),
           },
@@ -384,8 +470,13 @@ export const porApi = {
 /**
  * Returns headers required by backend admin endpoints.
  * KYC admin routes expect X-Admin-Secret; PoR routes expect X-Admin-Token.
- * Both are sourced from env vars so they never appear in client-side bundles
- * in plain text — they must be set via the Next.js server/edge runtime.
+ *
+ * WARNING: NEXT_PUBLIC_* environment variables are inlined into the
+ * client-side JavaScript bundle at build time and are fully readable by
+ * anyone who loads the app. They are NOT secret. Real admin credentials
+ * MUST NOT be shipped this way — the values here are POC placeholders only.
+ * A production design would proxy these calls through a server-side route
+ * handler that holds the real secret. (Out of scope for this change.)
  */
 function adminHeaders(variant: "kyc" | "por" | "general" = "general"): Record<string, string> {
   const secret = process.env.NEXT_PUBLIC_ADMIN_SECRET ?? "";
