@@ -10,28 +10,27 @@ import { ComplianceRegistry } from "../src/ComplianceRegistry.sol";
 import { MintController } from "../src/MintController.sol";
 import { BurnController } from "../src/BurnController.sol";
 
-/// @notice UUPS upgrade script — upgrades one or all proxy contracts to new implementations.
-/// @dev    The deployer wallet must hold UPGRADER_ROLE on the target proxy.
+/// @notice UUPS upgrade script. Upgrades are TIMELOCKED on-chain, so the flow
+///         is two-phase and split into separate script entrypoints:
 ///
-///         Upgrades are now TIMELOCKED on-chain. The flow is two-phase:
-///           1. Deploy the new implementation and call scheduleUpgrade(newImpl).
-///           2. After `upgradeDelay` seconds (default 48h), call upgradeToAndCall(newImpl, "").
-///         The `upgrade*` functions below assume the matching implementation was already
-///         scheduled and the delay has elapsed; otherwise the proxy reverts with
-///         UpgradeNotTimelocked / UpgradeTimelockActive.
+///           Phase 1 (schedule):  forge script ... --sig "scheduleGoldToken()"
+///             - deploys the new implementation
+///             - calls scheduleUpgrade(newImpl) on the proxy (needs UPGRADER_ROLE)
+///             - prints the new impl address — RECORD IT.
 ///
-///         Usage:
-///           forge script script/Upgrade.s.sol --sig "upgradeGoldToken()" ...
-///           forge script script/Upgrade.s.sol --sig "upgradeAll()" ...
+///           Phase 2 (apply, after `upgradeDelay`, default 48h):
+///                                 GOLD_TOKEN_NEW_IMPL=0x... forge script ... \
+///                                   --sig "applyGoldToken()"
+///             - calls upgradeToAndCall(newImpl, "") with the previously
+///               scheduled implementation address (read from *_NEW_IMPL env).
+///
+///         Applying before the delay elapses (or with a different impl than was
+///         scheduled) reverts with UpgradeTimelockActive / UpgradeNotTimelocked.
 ///
 ///         Required env vars (in addition to DEPLOYER_PRIVATE_KEY):
-///           GOLD_TOKEN_PROXY         — proxy address from deployments/<chainId>.json
-///           COMPLIANCE_REGISTRY_PROXY
-///           MINT_CONTROLLER_PROXY
-///           BURN_CONTROLLER_PROXY
-///
-///         The script reads from the address registry automatically when
-///         CHAIN_ID is set and the deployments/<chainId>.json file exists.
+///           GOLD_TOKEN_PROXY / COMPLIANCE_REGISTRY_PROXY /
+///           MINT_CONTROLLER_PROXY / BURN_CONTROLLER_PROXY  (or the registry)
+///         For the apply phase, the matching *_NEW_IMPL address from phase 1.
 contract Upgrade is Script {
     using stdJson for string;
 
@@ -56,98 +55,153 @@ contract Upgrade is Script {
         return json.readAddress(string.concat(".", registryKey));
     }
 
+    /// @dev The scheduled implementation address for the apply phase.
+    function _newImpl(string memory envKey) internal view returns (address) {
+        address impl = vm.envOr(envKey, address(0));
+        require(impl != address(0), string.concat(envKey, " must be set to the scheduled implementation"));
+        return impl;
+    }
+
     // ──────────────────────────────────────────────────────────────────────
-    // Individual upgrade targets
+    // Phase 1: schedule
     // ──────────────────────────────────────────────────────────────────────
 
-    function upgradeGoldToken() external {
+    function scheduleGoldToken() external {
         (uint256 pk,) = _deployer();
         address proxyAddr = _proxy("GOLD_TOKEN_PROXY", "goldToken");
 
         vm.startBroadcast(pk);
         GoldToken newImpl = new GoldToken();
-        UUPSUpgradeable(proxyAddr).upgradeToAndCall(address(newImpl), "");
+        GoldToken(proxyAddr).scheduleUpgrade(address(newImpl));
         vm.stopBroadcast();
 
-        console2.log("GoldToken upgraded");
-        console2.log("  proxy:   ", proxyAddr);
-        console2.log("  new impl:", address(newImpl));
+        _logScheduled("GoldToken", proxyAddr, address(newImpl), "GOLD_TOKEN_NEW_IMPL");
     }
 
-    function upgradeComplianceRegistry() external {
+    function scheduleComplianceRegistry() external {
         (uint256 pk,) = _deployer();
         address proxyAddr = _proxy("COMPLIANCE_REGISTRY_PROXY", "complianceRegistry");
 
         vm.startBroadcast(pk);
         ComplianceRegistry newImpl = new ComplianceRegistry();
-        UUPSUpgradeable(proxyAddr).upgradeToAndCall(address(newImpl), "");
+        ComplianceRegistry(proxyAddr).scheduleUpgrade(address(newImpl));
         vm.stopBroadcast();
 
-        console2.log("ComplianceRegistry upgraded");
-        console2.log("  proxy:   ", proxyAddr);
-        console2.log("  new impl:", address(newImpl));
+        _logScheduled("ComplianceRegistry", proxyAddr, address(newImpl), "COMPLIANCE_REGISTRY_NEW_IMPL");
     }
 
-    function upgradeMintController() external {
+    function scheduleMintController() external {
         (uint256 pk,) = _deployer();
         address proxyAddr = _proxy("MINT_CONTROLLER_PROXY", "mintController");
 
         vm.startBroadcast(pk);
         MintController newImpl = new MintController();
-        UUPSUpgradeable(proxyAddr).upgradeToAndCall(address(newImpl), "");
+        MintController(proxyAddr).scheduleUpgrade(address(newImpl));
         vm.stopBroadcast();
 
-        console2.log("MintController upgraded");
-        console2.log("  proxy:   ", proxyAddr);
-        console2.log("  new impl:", address(newImpl));
+        _logScheduled("MintController", proxyAddr, address(newImpl), "MINT_CONTROLLER_NEW_IMPL");
     }
 
-    function upgradeBurnController() external {
+    function scheduleBurnController() external {
         (uint256 pk,) = _deployer();
         address proxyAddr = _proxy("BURN_CONTROLLER_PROXY", "burnController");
 
         vm.startBroadcast(pk);
         BurnController newImpl = new BurnController();
-        UUPSUpgradeable(proxyAddr).upgradeToAndCall(address(newImpl), "");
+        BurnController(proxyAddr).scheduleUpgrade(address(newImpl));
         vm.stopBroadcast();
 
-        console2.log("BurnController upgraded");
-        console2.log("  proxy:   ", proxyAddr);
-        console2.log("  new impl:", address(newImpl));
+        _logScheduled("BurnController", proxyAddr, address(newImpl), "BURN_CONTROLLER_NEW_IMPL");
     }
 
-    // ──────────────────────────────────────────────────────────────────────
-    // Upgrade all UUPS proxies in one broadcast
-    // ──────────────────────────────────────────────────────────────────────
-
-    function upgradeAll() external {
+    /// @notice Schedule all four proxies in one broadcast.
+    function scheduleAll() external {
         (uint256 pk,) = _deployer();
-
         address goldTokenProxy = _proxy("GOLD_TOKEN_PROXY", "goldToken");
         address complianceProxy = _proxy("COMPLIANCE_REGISTRY_PROXY", "complianceRegistry");
         address mintProxy = _proxy("MINT_CONTROLLER_PROXY", "mintController");
         address burnProxy = _proxy("BURN_CONTROLLER_PROXY", "burnController");
 
         vm.startBroadcast(pk);
-
-        GoldToken newToken = new GoldToken();
-        UUPSUpgradeable(goldTokenProxy).upgradeToAndCall(address(newToken), "");
-
-        ComplianceRegistry newCompliance = new ComplianceRegistry();
-        UUPSUpgradeable(complianceProxy).upgradeToAndCall(address(newCompliance), "");
-
-        MintController newMint = new MintController();
-        UUPSUpgradeable(mintProxy).upgradeToAndCall(address(newMint), "");
-
-        BurnController newBurn = new BurnController();
-        UUPSUpgradeable(burnProxy).upgradeToAndCall(address(newBurn), "");
-
+        address t = address(new GoldToken());
+        GoldToken(goldTokenProxy).scheduleUpgrade(t);
+        address c = address(new ComplianceRegistry());
+        ComplianceRegistry(complianceProxy).scheduleUpgrade(c);
+        address m = address(new MintController());
+        MintController(mintProxy).scheduleUpgrade(m);
+        address b = address(new BurnController());
+        BurnController(burnProxy).scheduleUpgrade(b);
         vm.stopBroadcast();
 
-        console2.log("=== GOLD Full Upgrade ===");
-        console2.log("GoldToken impl:          ", address(newToken));
-        console2.log("ComplianceRegistry impl: ", address(newCompliance));
-        console2.log("MintController impl:     ", address(newMint));
-        console2.log("BurnController impl:     ", address(newBurn));
+        console2.log("=== GOLD Full Upgrade SCHEDULED (apply after upgradeDelay) ===");
+        _logScheduled("GoldToken", goldTokenProxy, t, "GOLD_TOKEN_NEW_IMPL");
+        _logScheduled("ComplianceRegistry", complianceProxy, c, "COMPLIANCE_REGISTRY_NEW_IMPL");
+        _logScheduled("MintController", mintProxy, m, "MINT_CONTROLLER_NEW_IMPL");
+        _logScheduled("BurnController", burnProxy, b, "BURN_CONTROLLER_NEW_IMPL");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Phase 2: apply (after the timelock delay)
+    // ──────────────────────────────────────────────────────────────────────
+
+    function applyGoldToken() external {
+        (uint256 pk,) = _deployer();
+        address proxyAddr = _proxy("GOLD_TOKEN_PROXY", "goldToken");
+        address impl = _newImpl("GOLD_TOKEN_NEW_IMPL");
+
+        vm.startBroadcast(pk);
+        UUPSUpgradeable(proxyAddr).upgradeToAndCall(impl, "");
+        vm.stopBroadcast();
+        _logApplied("GoldToken", proxyAddr, impl);
+    }
+
+    function applyComplianceRegistry() external {
+        (uint256 pk,) = _deployer();
+        address proxyAddr = _proxy("COMPLIANCE_REGISTRY_PROXY", "complianceRegistry");
+        address impl = _newImpl("COMPLIANCE_REGISTRY_NEW_IMPL");
+
+        vm.startBroadcast(pk);
+        UUPSUpgradeable(proxyAddr).upgradeToAndCall(impl, "");
+        vm.stopBroadcast();
+        _logApplied("ComplianceRegistry", proxyAddr, impl);
+    }
+
+    function applyMintController() external {
+        (uint256 pk,) = _deployer();
+        address proxyAddr = _proxy("MINT_CONTROLLER_PROXY", "mintController");
+        address impl = _newImpl("MINT_CONTROLLER_NEW_IMPL");
+
+        vm.startBroadcast(pk);
+        UUPSUpgradeable(proxyAddr).upgradeToAndCall(impl, "");
+        vm.stopBroadcast();
+        _logApplied("MintController", proxyAddr, impl);
+    }
+
+    function applyBurnController() external {
+        (uint256 pk,) = _deployer();
+        address proxyAddr = _proxy("BURN_CONTROLLER_PROXY", "burnController");
+        address impl = _newImpl("BURN_CONTROLLER_NEW_IMPL");
+
+        vm.startBroadcast(pk);
+        UUPSUpgradeable(proxyAddr).upgradeToAndCall(impl, "");
+        vm.stopBroadcast();
+        _logApplied("BurnController", proxyAddr, impl);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Logging
+    // ──────────────────────────────────────────────────────────────────────
+
+    function _logScheduled(string memory name, address proxyAddr, address impl, string memory envKey) internal pure {
+        console2.log(string.concat(name, " upgrade scheduled"));
+        console2.log("  proxy:   ", proxyAddr);
+        console2.log("  new impl:", impl);
+        console2.log(string.concat("  -> after the delay, set ", envKey, "=<new impl> and run apply", name, "()"));
+    }
+
+    function _logApplied(string memory name, address proxyAddr, address impl) internal pure {
+        console2.log(string.concat(name, " upgraded"));
+        console2.log("  proxy:   ", proxyAddr);
+        console2.log("  new impl:", impl);
     }
 }
