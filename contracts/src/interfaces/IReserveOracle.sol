@@ -16,10 +16,25 @@ interface IReserveOracle {
         address auditor;        // on-chain address of the auditing firm
     }
 
-    /// @notice Publish a new audit attestation. AUDITOR_ROLE only.
+    /// @notice Publish a new audit attestation, authorised by an N-of-M auditor
+    ///         signature threshold over the EIP-712 attestation digest.
     /// @dev timestamp and asOf must be strictly greater than the previous attestation
-    ///      (monotonic).
-    function publish(Attestation calldata a, bytes calldata signature) external;
+    ///      (monotonic) and asOf must not be in the future. Requires at least
+    ///      `signatureThreshold` distinct authorised-auditor signatures over the same
+    ///      typed-data digest; duplicate signers are rejected. Growth in totalGrams
+    ///      between consecutive attestations is bounded by `maxGrowthBps`.
+    /// @param signatures Array of EIP-712 signatures from distinct authorised auditors.
+    function publish(Attestation calldata a, bytes[] calldata signatures) external;
+
+    /// @notice Number of distinct auditor signatures required to publish.
+    function signatureThreshold() external view returns (uint256);
+
+    /// @notice Number of currently authorised auditors.
+    function auditorCount() external view returns (uint256);
+
+    /// @notice Maximum allowed growth in totalGrams between consecutive attestations,
+    ///         expressed in basis points (e.g. 5000 = +50%).
+    function maxGrowthBps() external view returns (uint256);
 
     /// @notice Most recent (latest) attestation.
     function latest() external view returns (Attestation memory);
@@ -58,4 +73,6 @@ interface IReserveOracle {
     );
     event AuditorAuthorized(address indexed auditor);
     event AuditorDeauthorized(address indexed auditor);
+    event SignatureThresholdUpdated(uint256 newThreshold);
+    event MaxGrowthBpsUpdated(uint256 newMaxGrowthBps);
 }

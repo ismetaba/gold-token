@@ -26,6 +26,11 @@ interface IGoldToken is IERC20, IERC20Metadata, IERC20Permit {
     /// @dev User must approve the controller via ERC-20 approve; controller pull-burns.
     function burnFrom(address from, uint256 amount) external;
 
+    /// @notice Emergency compliance clawback burn by the burn controller.
+    /// @dev No allowance required and executes even while paused. Compliance gating is
+    ///      enforced by BurnController.operatorBurn.
+    function operatorBurnFrom(address from, uint256 amount) external;
+
     /// @notice Emergency pause (PAUSER_ROLE only).
     function pause() external;
 
@@ -45,4 +50,7 @@ interface IGoldToken is IERC20, IERC20Metadata, IERC20Permit {
     event BurnControllerUpdated(address indexed oldAddr, address indexed newAddr);
     event Minted(address indexed to, uint256 amount, bytes2 jurisdiction);
     event Burned(address indexed from, uint256 amount);
+    event UpgradeScheduled(address indexed newImpl, uint256 eligibleAt);
+    event UpgradeCancelled(address indexed cancelledImpl);
+    event UpgradeDelayUpdated(uint256 newDelay);
 }

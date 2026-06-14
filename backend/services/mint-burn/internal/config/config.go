@@ -32,9 +32,10 @@ type Config struct {
 	SoftHSMPin        string
 	SoftHSMKeyLabel   string
 
-	ApprovalTimeout  time.Duration
-	StepPollInterval time.Duration
-	MaxAttempts      int
+	ApprovalTimeout   time.Duration
+	StepPollInterval  time.Duration
+	MaxAttempts       int
+	ApprovalThreshold int
 }
 
 // FromEnv, ortam değişkenlerinden config yükler. Zorunlu alanlar eksikse hata.
@@ -43,9 +44,10 @@ func FromEnv() (*Config, error) {
 		Env:              getenv("GOLD_ENV", "local"),
 		HTTPAddr:         getenv("GOLD_HTTP_ADDR", ":8081"),
 		NATSStream:       getenv("GOLD_NATS_STREAM", "GOLD"),
-		ApprovalTimeout:  getenvDuration("GOLD_APPROVAL_TIMEOUT", 4*time.Hour),
-		StepPollInterval: getenvDuration("GOLD_STEP_POLL_INTERVAL", 2*time.Second),
-		MaxAttempts:      getenvInt("GOLD_MAX_ATTEMPTS", 5),
+		ApprovalTimeout:   getenvDuration("GOLD_APPROVAL_TIMEOUT", 4*time.Hour),
+		StepPollInterval:  getenvDuration("GOLD_STEP_POLL_INTERVAL", 2*time.Second),
+		MaxAttempts:       getenvInt("GOLD_MAX_ATTEMPTS", 5),
+		ApprovalThreshold: getenvInt("GOLD_APPROVAL_THRESHOLD", 3),
 	}
 
 	c.DatabaseURL = os.Getenv("DATABASE_URL")

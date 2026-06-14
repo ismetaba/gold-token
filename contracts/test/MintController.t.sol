@@ -27,6 +27,8 @@ contract MintControllerTest is BaseTest {
     function test_reserveStaleness_blocksMintAfterMaxAge() public {
         _setKyc(alice, TR);
         _publishReserve(1000 * 1e18);
+        // Record the timestamp the oracle stored for the latest attestation.
+        uint256 attestedAt = oracle.latest().timestamp;
 
         bytes32 pid =
             _proposeAndApproveMint(alice, 100 * 1e18, TR, keccak256("alloc-stale"));
@@ -35,7 +37,28 @@ contract MintControllerTest is BaseTest {
         vm.warp(block.timestamp + 36 days);
 
         vm.prank(executor);
-        vm.expectRevert(); // StaleReserveAttestation
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Errors.StaleReserveAttestation.selector, attestedAt, MAX_RESERVE_AGE
+            )
+        );
+        minter.executeMint(pid);
+    }
+
+    function test_reserveStaleness_noAttestationReportsStaleNotUnderflow() public {
+        _setKyc(alice, TR);
+        // No reserve attestation is ever published → oracle.timeSinceLatest() == max.
+        bytes32 pid =
+            _proposeAndApproveMint(alice, 100 * 1e18, TR, keccak256("alloc-none"));
+
+        // Must surface a clean StaleReserveAttestation with lastAttestationAt == 0,
+        // not an arithmetic underflow panic.
+        vm.prank(executor);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Errors.StaleReserveAttestation.selector, 0, MAX_RESERVE_AGE
+            )
+        );
         minter.executeMint(pid);
     }
 

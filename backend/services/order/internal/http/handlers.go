@@ -8,19 +8,18 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	pkgevents "github.com/ismetaba/gold-token/backend/pkg/events"
 	"github.com/ismetaba/gold-token/backend/pkg/httputil"
+	"github.com/ismetaba/gold-token/backend/pkg/jwtverify"
 	"github.com/ismetaba/gold-token/backend/services/order/internal/domain"
 	"github.com/ismetaba/gold-token/backend/services/order/internal/repo"
 )
@@ -36,37 +35,23 @@ type Handlers struct {
 	orders   repo.OrderRepo
 	bus      *pkgevents.Bus
 	stream   string
-	jwtPub   interface{} // *rsa.PublicKey or nil (local dev — skip auth)
-	localDev bool
+	verifier *jwtverify.Verifier
 	log      *zap.Logger
 }
 
-// NewHandlers constructs the handler set.
+// NewHandlers constructs the handler set. verifier is the shared access-token
+// verifier (permissive in local dev, where the X-Dev-User-Id header is used).
 func NewHandlers(
 	orders repo.OrderRepo,
 	bus *pkgevents.Bus,
 	stream string,
-	jwtPublicKeyFile string,
+	verifier *jwtverify.Verifier,
 	log *zap.Logger,
-) (*Handlers, error) {
-	h := &Handlers{orders: orders, bus: bus, stream: stream, log: log}
-
-	if jwtPublicKeyFile == "" {
-		h.localDev = true
-		log.Warn("order: JWT auth disabled — local dev mode")
-		return h, nil
+) *Handlers {
+	if verifier.Permissive() {
+		log.Warn("order: JWT signature verification disabled — local dev mode")
 	}
-
-	pem, err := os.ReadFile(jwtPublicKeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("read JWT public key: %w", err)
-	}
-	pub, err := jwt.ParseRSAPublicKeyFromPEM(pem)
-	if err != nil {
-		return nil, fmt.Errorf("parse JWT public key: %w", err)
-	}
-	h.jwtPub = pub
-	return h, nil
+	return &Handlers{orders: orders, bus: bus, stream: stream, verifier: verifier, log: log}
 }
 
 func (h *Handlers) Routes(env string) chi.Router {
@@ -102,7 +87,7 @@ func (h *Handlers) Routes(env string) chi.Router {
 
 func (h *Handlers) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if h.localDev {
+		if h.verifier.Permissive() {
 			rawID := r.Header.Get("X-Dev-User-Id")
 			if rawID == "" {
 				rawID = "00000000-0000-0000-0000-000000000001"
@@ -121,33 +106,9 @@ func (h *Handlers) requireAuth(next http.Handler) http.Handler {
 			writeErr(w, http.StatusUnauthorized, "missing_token", "Authorization header required")
 			return
 		}
-		tokenStr := strings.TrimPrefix(hdr, "Bearer ")
-
-		t, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
-			if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-			}
-			return h.jwtPub, nil
-		}, jwt.WithIssuer("gold-auth"), jwt.WithExpirationRequired())
+		userID, err := h.verifier.VerifyAccess(strings.TrimPrefix(hdr, "Bearer "))
 		if err != nil {
 			writeErr(w, http.StatusUnauthorized, "invalid_token", "access token is invalid or expired")
-			return
-		}
-
-		claims, ok := t.Claims.(jwt.MapClaims)
-		if !ok {
-			writeErr(w, http.StatusUnauthorized, "invalid_token", "bad claims")
-			return
-		}
-		tt, _ := claims["token_type"].(string)
-		if tt != "access" {
-			writeErr(w, http.StatusUnauthorized, "invalid_token", "not an access token")
-			return
-		}
-		subStr, _ := claims["sub"].(string)
-		userID, err := uuid.Parse(subStr)
-		if err != nil {
-			writeErr(w, http.StatusUnauthorized, "invalid_token", "invalid sub claim")
 			return
 		}
 
@@ -519,13 +480,11 @@ func gramsToWei(grams string) (*big.Int, error) {
 }
 
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
+	httputil.WriteJSON(w, code, v)
 }
 
 func writeErr(w http.ResponseWriter, code int, errCode, msg string) {
-	writeJSON(w, code, map[string]string{"error": errCode, "message": msg})
+	httputil.WriteError(w, code, errCode, msg)
 }
 
 func queryInt(r *http.Request, key string, def int) int {

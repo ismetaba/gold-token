@@ -153,11 +153,14 @@ export default function ProofOfReservePage() {
             </div>
             <div className="divide-y divide-slate-100">
               {por.vaults.map((vault) => {
-                const pct = (
-                  (parseFloat(vault.totalGoldGrams) /
-                    parseFloat(por.totalGoldGrams)) *
-                  100
-                ).toFixed(1);
+                const totalGold = parseFloat(por.totalGoldGrams);
+                const pct =
+                  totalGold > 0
+                    ? (
+                        (parseFloat(vault.totalGoldGrams) / totalGold) *
+                        100
+                      ).toFixed(1)
+                    : "0.0";
                 return (
                   <div key={vault.vaultId} className="px-6 py-4">
                     <div className="flex items-start justify-between mb-2">

@@ -71,8 +71,21 @@ export function formatDate(iso: string): string {
   });
 }
 
+/**
+ * Convert a wei-denominated balance (18 decimals) to grams as a string with
+ * 4 fractional digits. Works entirely in BigInt/string space so it stays
+ * exact for arbitrarily large balances (Number(bigint)/1e18 loses precision
+ * above ~9 GOLD).
+ */
 export function weiToGrams(wei: string): string {
+  const negative = wei.trim().startsWith("-");
   const n = BigInt(wei);
-  const grams = Number(n) / 1e18;
-  return grams.toFixed(4);
+  const zero = BigInt(0);
+  const abs = n < zero ? -n : n;
+  const weiPerGram = BigInt("1000000000000000000"); // 1e18
+  const whole = abs / weiPerGram;
+  // 4 decimal places: scale the fractional part to 4 digits (truncated).
+  const fracScaled = ((abs % weiPerGram) * BigInt(10000)) / weiPerGram;
+  const frac = fracScaled.toString().padStart(4, "0");
+  return `${negative ? "-" : ""}${whole.toString()}.${frac}`;
 }

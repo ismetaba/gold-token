@@ -12,7 +12,6 @@ package main
 import (
 	"context"
 	"errors"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -23,6 +22,7 @@ import (
 
 	pkgevents "github.com/ismetaba/gold-token/backend/pkg/events"
 	"github.com/ismetaba/gold-token/backend/pkg/obs"
+	"github.com/ismetaba/gold-token/backend/pkg/server"
 	"github.com/ismetaba/gold-token/backend/services/auth/internal/config"
 	authhttp "github.com/ismetaba/gold-token/backend/services/auth/internal/http"
 	"github.com/ismetaba/gold-token/backend/services/auth/internal/repo"
@@ -88,30 +88,6 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 
 	// 5. HTTP server
 	handlers := authhttp.NewHandlers(userRepo, tm, bus, log)
-	srv := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           handlers.Routes(cfg.Env),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
-	}
-
-	errCh := make(chan error, 1)
-	go func() {
-		log.Info("http listen", zap.String("addr", cfg.HTTPAddr))
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
-
-	select {
-	case err := <-errCh:
-		return err
-	case <-ctx.Done():
-		log.Info("shutting down")
-		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutCtx)
-		return nil
-	}
+	srv := server.NewHTTPServer(cfg.HTTPAddr, handlers.Routes(cfg.Env), server.DefaultTimeouts())
+	return server.Serve(ctx, srv, log, 10*time.Second)
 }

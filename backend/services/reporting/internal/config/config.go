@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"os"
+
+	"github.com/ismetaba/gold-token/backend/pkg/secrets"
 )
 
 type Config struct {
@@ -34,7 +36,12 @@ func FromEnv() (*Config, error) {
 			}
 		}
 	} else if c.AdminSecret == "" {
-		c.AdminSecret = "local-reporting-secret"
+		// Generate a random admin secret for local dev so it's never a static default.
+		s, err := secrets.RandomHex(32)
+		if err != nil {
+			return nil, err
+		}
+		c.AdminSecret = s
 	}
 	return c, nil
 }

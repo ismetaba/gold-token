@@ -30,6 +30,11 @@ library Errors {
     error InvalidAuditorSignature();
     error UnknownAuditor(address signer);
     error InvalidMerkleProof();
+    error AttestationInFuture(uint64 asOf, uint64 nowTs);
+    error InsufficientAuditorSignatures(uint256 provided, uint256 required);
+    error DuplicateAuditorSignature(address signer);
+    error InvalidSignatureThreshold(uint256 threshold, uint256 auditorCount);
+    error ReserveGrowthExceeded(uint256 previousGrams, uint256 newGrams, uint256 maxGrowthBps);
 
     // Signatures / Deadlines
     error DeadlineExpired(uint256 deadline);

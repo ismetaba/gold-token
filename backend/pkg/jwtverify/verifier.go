@@ -1,4 +1,9 @@
-// Package jwtverify provides RS256 JWT verification for the notification service.
+// Package jwtverify verifies the RS256 access tokens issued by the auth
+// service. It is the single shared implementation used by every consumer
+// service (kyc, notification, order, wallet, ...), replacing the per-service
+// copies that had drifted apart.
+//
+// Only verification lives here; the auth service owns token issuance.
 package jwtverify
 
 import (
@@ -17,12 +22,22 @@ const (
 	typeAccess = "access"
 )
 
+// Verifier verifies RS256 access tokens.
 type Verifier struct {
-	publicKey any
+	publicKey any // *rsa.PublicKey; nil means permissive local mode
 }
 
-func NewVerifier(publicKeyFile string) (*Verifier, error) {
+// New loads the RSA public key from publicKeyFile.
+//
+// If publicKeyFile is empty the verifier would skip signature validation, which
+// is only acceptable in local development. New therefore refuses to build a
+// permissive verifier unless env == "local", so a missing key file in any other
+// environment fails fast instead of silently disabling authentication.
+func New(publicKeyFile, env string) (*Verifier, error) {
 	if publicKeyFile == "" {
+		if env != "local" {
+			return nil, fmt.Errorf("jwt public key file is required when GOLD_ENV=%q (refusing insecure permissive mode)", env)
+		}
 		return &Verifier{}, nil
 	}
 	pem, err := os.ReadFile(publicKeyFile)
@@ -36,6 +51,12 @@ func NewVerifier(publicKeyFile string) (*Verifier, error) {
 	return &Verifier{publicKey: pub}, nil
 }
 
+// Permissive reports whether the verifier skips signature validation (local
+// dev only). Callers can use this to decide whether to require a bearer token.
+func (v *Verifier) Permissive() bool { return v.publicKey == nil }
+
+// VerifyAccess validates an access token and returns the subject user ID.
+// In permissive local mode the signature is not verified.
 func (v *Verifier) VerifyAccess(tokenStr string) (uuid.UUID, error) {
 	if v.publicKey == nil {
 		return v.unsafeExtractSub(tokenStr)
@@ -55,11 +76,9 @@ func (v *Verifier) VerifyAccess(tokenStr string) (uuid.UUID, error) {
 	if !ok {
 		return uuid.Nil, fmt.Errorf("invalid claims type")
 	}
-
 	if tt, _ := claims["token_type"].(string); tt != typeAccess {
 		return uuid.Nil, fmt.Errorf("wrong token_type: %q", tt)
 	}
-
 	subStr, _ := claims["sub"].(string)
 	id, err := uuid.Parse(subStr)
 	if err != nil {
@@ -68,6 +87,8 @@ func (v *Verifier) VerifyAccess(tokenStr string) (uuid.UUID, error) {
 	return id, nil
 }
 
+// unsafeExtractSub decodes the JWT payload WITHOUT verifying the signature.
+// Only reachable in permissive local mode (no public key configured).
 func (v *Verifier) unsafeExtractSub(tokenStr string) (uuid.UUID, error) {
 	parts := strings.Split(tokenStr, ".")
 	if len(parts) != 3 {

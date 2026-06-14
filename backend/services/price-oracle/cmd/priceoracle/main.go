@@ -19,7 +19,6 @@ package main
 import (
 	"context"
 	"errors"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -30,6 +29,7 @@ import (
 
 	pkgevents "github.com/ismetaba/gold-token/backend/pkg/events"
 	"github.com/ismetaba/gold-token/backend/pkg/obs"
+	"github.com/ismetaba/gold-token/backend/pkg/server"
 	"github.com/ismetaba/gold-token/backend/services/price-oracle/internal/config"
 	"github.com/ismetaba/gold-token/backend/services/price-oracle/internal/domain"
 	oraclehttp "github.com/ismetaba/gold-token/backend/services/price-oracle/internal/http"
@@ -115,30 +115,6 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 
 	// 6. HTTP server
 	handlers := oraclehttp.NewHandlers(orc, priceRepo, log)
-	srv := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           handlers.Routes(cfg.Env),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      0, // Disable for WebSocket connections (long-lived).
-	}
-
-	errCh := make(chan error, 1)
-	go func() {
-		log.Info("http listen", zap.String("addr", cfg.HTTPAddr))
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
-
-	select {
-	case err := <-errCh:
-		return err
-	case <-ctx.Done():
-		log.Info("shutting down")
-		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutCtx)
-		return nil
-	}
+	srv := server.NewHTTPServer(cfg.HTTPAddr, handlers.Routes(cfg.Env), server.Timeouts{ReadHeader: 5 * time.Second, Read: 15 * time.Second})
+	return server.Serve(ctx, srv, log, 10*time.Second)
 }

@@ -3,6 +3,10 @@ pragma solidity 0.8.24;
 
 import { BaseTest } from "./Base.t.sol";
 import { Errors } from "../src/libraries/Errors.sol";
+import { GoldToken } from "../src/GoldToken.sol";
+import { Roles } from "../src/libraries/Roles.sol";
+import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 contract GoldTokenTest is BaseTest {
     function test_initialState() public view {
@@ -149,5 +153,105 @@ contract GoldTokenTest is BaseTest {
         vm.prank(treasury);
         token.setComplianceRegistry(newReg);
         assertEq(token.complianceRegistry(), newReg);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Upgrade timelock
+    // ──────────────────────────────────────────────────────────────────────
+
+    function test_upgradeTimelock_defaultDelayIs48h() public view {
+        assertEq(token.upgradeDelay(), 48 hours);
+    }
+
+    function test_upgradeTimelock_immediateUpgradeReverts() public {
+        GoldToken newImpl = new GoldToken();
+
+        // Not scheduled at all → UpgradeNotTimelocked.
+        vm.prank(treasury);
+        vm.expectRevert(Errors.UpgradeNotTimelocked.selector);
+        UUPSUpgradeable(address(token)).upgradeToAndCall(address(newImpl), "");
+    }
+
+    function test_upgradeTimelock_scheduledButTooEarlyReverts() public {
+        GoldToken newImpl = new GoldToken();
+
+        vm.prank(treasury); // treasury holds UPGRADER_ROLE
+        token.scheduleUpgrade(address(newImpl));
+
+        uint256 eligibleAt = block.timestamp + 48 hours;
+        // Warp not far enough.
+        vm.warp(block.timestamp + 47 hours);
+
+        vm.prank(treasury);
+        vm.expectRevert(
+            abi.encodeWithSelector(Errors.UpgradeTimelockActive.selector, eligibleAt)
+        );
+        UUPSUpgradeable(address(token)).upgradeToAndCall(address(newImpl), "");
+    }
+
+    function test_upgradeTimelock_succeedsAfterDelay() public {
+        GoldToken newImpl = new GoldToken();
+
+        vm.prank(treasury);
+        token.scheduleUpgrade(address(newImpl));
+        (address scheduled,) = token.scheduledUpgrade();
+        assertEq(scheduled, address(newImpl));
+
+        vm.warp(block.timestamp + 48 hours);
+
+        vm.prank(treasury);
+        UUPSUpgradeable(address(token)).upgradeToAndCall(address(newImpl), "");
+
+        // Schedule slot consumed.
+        (address afterImpl, uint256 afterAt) = token.scheduledUpgrade();
+        assertEq(afterImpl, address(0));
+        assertEq(afterAt, 0);
+        // Token still functions post-upgrade.
+        assertEq(token.symbol(), "GOLD");
+    }
+
+    function test_upgradeTimelock_cannotApplyDifferentImpl() public {
+        GoldToken scheduledImpl = new GoldToken();
+        GoldToken otherImpl = new GoldToken();
+
+        vm.prank(treasury);
+        token.scheduleUpgrade(address(scheduledImpl));
+        vm.warp(block.timestamp + 48 hours);
+
+        // Delay elapsed but the target differs from the scheduled impl.
+        vm.prank(treasury);
+        vm.expectRevert(Errors.UpgradeNotTimelocked.selector);
+        UUPSUpgradeable(address(token)).upgradeToAndCall(address(otherImpl), "");
+    }
+
+    function test_upgradeTimelock_nonUpgraderCannotSchedule() public {
+        GoldToken newImpl = new GoldToken();
+        // alice has no UPGRADER_ROLE.
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                alice,
+                Roles.UPGRADER_ROLE
+            )
+        );
+        token.scheduleUpgrade(address(newImpl));
+    }
+
+    function test_upgradeTimelock_cancelScheduledUpgrade() public {
+        GoldToken newImpl = new GoldToken();
+        vm.prank(treasury);
+        token.scheduleUpgrade(address(newImpl));
+
+        vm.prank(treasury);
+        token.cancelScheduledUpgrade();
+        (address impl, uint256 at) = token.scheduledUpgrade();
+        assertEq(impl, address(0));
+        assertEq(at, 0);
+
+        vm.warp(block.timestamp + 48 hours);
+        vm.prank(treasury);
+        vm.expectRevert(Errors.UpgradeNotTimelocked.selector);
+        UUPSUpgradeable(address(token)).upgradeToAndCall(address(newImpl), "");
     }
 }

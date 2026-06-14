@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -13,6 +15,60 @@ const (
 	webhookMaxRetries = 3
 	webhookBaseDelay  = 500 * time.Millisecond
 )
+
+// isBlockedIP reports whether an address must not be reachable by a
+// user-configured webhook, to prevent SSRF into internal infrastructure
+// (including the cloud metadata endpoint at 169.254.169.254, which is
+// link-local).
+func isBlockedIP(ip net.IP) bool {
+	return ip == nil ||
+		ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsUnspecified() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsMulticast()
+}
+
+// validateWebhookURL rejects non-http(s) schemes and IP-literal hosts that
+// point at internal ranges. DNS hostnames are additionally checked at dial
+// time (see guardedDialContext), which also defeats DNS-rebinding.
+func validateWebhookURL(u *url.URL) error {
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("webhook scheme %q not allowed (use http or https)", u.Scheme)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("webhook host is empty")
+	}
+	if ip := net.ParseIP(host); ip != nil && isBlockedIP(ip) {
+		return fmt.Errorf("webhook host %s is not an allowed address", ip)
+	}
+	return nil
+}
+
+// guardedDialContext resolves the target host and refuses to connect to any
+// blocked address, then dials a vetted IP directly so the connection cannot be
+// re-pointed at an internal host between resolution and dialing.
+func guardedDialContext() func(ctx context.Context, network, addr string) (net.Conn, error) {
+	d := &net.Dialer{Timeout: 5 * time.Second}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
+		}
+		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		if err != nil {
+			return nil, err
+		}
+		for _, ip := range ips {
+			if isBlockedIP(ip.IP) {
+				return nil, fmt.Errorf("refusing to connect to blocked address %s (SSRF protection)", ip.IP)
+			}
+		}
+		return d.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+	}
+}
 
 // WebhookPayload is the JSON body posted to the user's webhook URL.
 type WebhookPayload struct {
@@ -28,10 +84,20 @@ type WebhookSender struct {
 	client *http.Client
 }
 
-// NewWebhookSender constructs a WebhookSender.
+// NewWebhookSender constructs a WebhookSender whose HTTP client blocks
+// connections to internal/private addresses and re-validates redirect targets.
 func NewWebhookSender() *WebhookSender {
 	return &WebhookSender{
-		client: &http.Client{Timeout: 10 * time.Second},
+		client: &http.Client{
+			Timeout:   10 * time.Second,
+			Transport: &http.Transport{DialContext: guardedDialContext()},
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 5 {
+					return fmt.Errorf("stopped after 5 redirects")
+				}
+				return validateWebhookURL(req.URL)
+			},
+		},
 	}
 }
 
@@ -39,6 +105,13 @@ func NewWebhookSender() *WebhookSender {
 func (s *WebhookSender) Send(ctx context.Context, targetURL, eventType, subject, body string) error {
 	if targetURL == "" {
 		return fmt.Errorf("webhook_url is empty")
+	}
+	u, err := url.Parse(targetURL)
+	if err != nil {
+		return fmt.Errorf("invalid webhook url: %w", err)
+	}
+	if err := validateWebhookURL(u); err != nil {
+		return err
 	}
 
 	p := WebhookPayload{

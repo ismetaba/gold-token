@@ -5,7 +5,6 @@
 package http
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -64,19 +63,17 @@ func (h *Handlers) getSaga(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_uuid"})
+		httputil.WriteError(w, http.StatusBadRequest, "invalid_uuid", "saga id must be a valid UUID")
 		return
 	}
 	s, err := h.sagas.ByID(r.Context(), id)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "saga_not_found"})
+		httputil.WriteError(w, http.StatusNotFound, "saga_not_found", "no saga with that id")
 		return
 	}
 	writeJSON(w, http.StatusOK, s)
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
+	httputil.WriteJSON(w, status, body)
 }

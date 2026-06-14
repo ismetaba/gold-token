@@ -164,6 +164,14 @@ func (h *Handlers) login(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid_json", "malformed request body")
 		return
 	}
+	if req.Email == "" || req.Password == "" {
+		writeErr(w, http.StatusUnprocessableEntity, "missing_fields", "email and password are required")
+		return
+	}
+	if !httputil.ValidateEmail(req.Email) {
+		writeErr(w, http.StatusUnprocessableEntity, "invalid_email", "email must be a valid email address")
+		return
+	}
 
 	user, err := h.users.ByEmail(r.Context(), req.Email)
 	if err != nil {
@@ -295,13 +303,9 @@ func (h *Handlers) issuePair(userID uuid.UUID) (domain.TokenPair, error) {
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
+	httputil.WriteJSON(w, status, body)
 }
 
 func writeErr(w http.ResponseWriter, status int, code, msg string) {
-	writeJSON(w, status, map[string]any{
-		"error": map[string]string{"code": code, "message": msg},
-	})
+	httputil.WriteError(w, status, code, msg)
 }

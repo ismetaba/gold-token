@@ -2,7 +2,6 @@
 package http
 
 import (
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -139,7 +138,7 @@ func (h *Handlers) getLog(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		secret := r.Header.Get("X-Admin-Secret")
-		if subtle.ConstantTimeCompare([]byte(secret), []byte(h.adminSecret)) != 1 {
+		if !httputil.ValidAdminSecret(h.adminSecret, secret) {
 			writeError(w, http.StatusUnauthorized, "unauthorized", "invalid admin secret")
 			return
 		}
@@ -194,14 +193,9 @@ func queryInt(r *http.Request, key string, def int) int {
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	httputil.WriteJSON(w, status, v)
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, map[string]any{
-		"error":   code,
-		"message": message,
-	})
+	httputil.WriteError(w, status, code, message)
 }

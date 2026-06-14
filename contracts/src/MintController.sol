@@ -51,7 +51,18 @@ contract MintController is
         uint256 rateLimitMax;               // max gram-wei per window (0 = disabled)
         uint256 rateLimitWindowStart;       // start timestamp of the current window
         uint256 rateLimitMinted;            // amount minted in the current window
+        // ── Upgrade timelock (appended at END to preserve storage layout) ──
+        uint256 upgradeDelay;
+        address scheduledImpl;
+        uint256 scheduledAt;
     }
+
+    /// @dev Default upgrade timelock: 48 hours.
+    uint256 private constant DEFAULT_UPGRADE_DELAY = 48 hours;
+
+    event UpgradeScheduled(address indexed newImpl, uint256 eligibleAt);
+    event UpgradeCancelled(address indexed cancelledImpl);
+    event UpgradeDelayUpdated(uint256 newDelay);
 
     // keccak256(abi.encode(uint256(keccak256("gold.mint.storage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant STORAGE_LOCATION =
@@ -99,6 +110,7 @@ contract MintController is
         $.approvalThreshold = approvalThreshold_;
         // totalApprovers is now maintained by _grantRole override — no manual set needed
         $.maxReserveAge = maxReserveAge_;
+        $.upgradeDelay = DEFAULT_UPGRADE_DELAY;
 
         _grantRole(DEFAULT_ADMIN_ROLE, treasury);
         _grantRole(Roles.TREASURY_ROLE, treasury);
@@ -181,10 +193,14 @@ contract MintController is
             revert Errors.NotAuthorized();
         }
 
-        // 2. Reserve freshness: latest PoR must be within maxReserveAge
+        // 2. Reserve freshness: latest PoR must be within maxReserveAge.
+        //    When there are zero attestations the oracle returns type(uint256).max as the
+        //    age; handle that explicitly so we report a clean StaleReserveAttestation
+        //    instead of underflow-panicking on `block.timestamp - age`.
         uint256 age = $.oracle.timeSinceLatest();
         if (age > $.maxReserveAge) {
-            revert Errors.StaleReserveAttestation(block.timestamp - age, $.maxReserveAge);
+            uint256 lastAt = age > block.timestamp ? 0 : block.timestamp - age;
+            revert Errors.StaleReserveAttestation(lastAt, $.maxReserveAge);
         }
 
         // 3. Reserve invariant: totalSupply + grossAmount <= attestedGrams
@@ -339,11 +355,53 @@ contract MintController is
     // UUPS
     // ──────────────────────────────────────────────────────────────────────
 
+    function scheduleUpgrade(address newImpl) external onlyRole(Roles.UPGRADER_ROLE) {
+        if (newImpl == address(0)) revert Errors.ZeroAddress();
+        MintStorage storage $ = _s();
+        $.scheduledImpl = newImpl;
+        $.scheduledAt = block.timestamp;
+        emit UpgradeScheduled(newImpl, block.timestamp + $.upgradeDelay);
+    }
+
+    function cancelScheduledUpgrade() external onlyRole(Roles.UPGRADER_ROLE) {
+        MintStorage storage $ = _s();
+        address cancelled = $.scheduledImpl;
+        $.scheduledImpl = address(0);
+        $.scheduledAt = 0;
+        emit UpgradeCancelled(cancelled);
+    }
+
+    function setUpgradeDelay(uint256 newDelay) external onlyRole(Roles.TREASURY_ROLE) {
+        _s().upgradeDelay = newDelay;
+        emit UpgradeDelayUpdated(newDelay);
+    }
+
+    function upgradeDelay() external view returns (uint256) {
+        return _s().upgradeDelay;
+    }
+
+    function scheduledUpgrade() external view returns (address impl, uint256 scheduledAt) {
+        MintStorage storage $ = _s();
+        return ($.scheduledImpl, $.scheduledAt);
+    }
+
+    /// @dev UPGRADER_ROLE + on-chain timelock: the target must have been scheduled at
+    ///      least `upgradeDelay` seconds earlier.
     function _authorizeUpgrade(address newImpl)
         internal
         override
         onlyRole(Roles.UPGRADER_ROLE)
     {
         if (newImpl == address(0)) revert Errors.ZeroAddress();
+        MintStorage storage $ = _s();
+        if ($.scheduledImpl != newImpl || $.scheduledAt == 0) {
+            revert Errors.UpgradeNotTimelocked();
+        }
+        uint256 eligibleAt = $.scheduledAt + $.upgradeDelay;
+        if (block.timestamp < eligibleAt) {
+            revert Errors.UpgradeTimelockActive(eligibleAt);
+        }
+        $.scheduledImpl = address(0);
+        $.scheduledAt = 0;
     }
 }

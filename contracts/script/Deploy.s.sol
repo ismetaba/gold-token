@@ -52,10 +52,26 @@ contract Deploy is Script {
         ERC1967Proxy tokenProxy = new ERC1967Proxy(address(tokenImpl), tokenInit);
         GoldToken token = GoldToken(address(tokenProxy));
 
-        // 3. ReserveOracle (immutable)
-        address[] memory initialAuditors = new address[](1);
-        initialAuditors[0] = auditor;
+        // 3. ReserveOracle (immutable). Production MUST run with >= 2 auditors:
+        // a single auditor key would unilaterally authorize minting. We provision
+        // a second auditor when AUDITOR_2_ADDRESS is set (threshold becomes 2);
+        // otherwise we fall back to a single auditor for local/testnet only.
+        address auditor2 = vm.envOr("AUDITOR_2_ADDRESS", address(0));
+        address[] memory initialAuditors;
+        if (auditor2 != address(0) && auditor2 != auditor) {
+            initialAuditors = new address[](2);
+            initialAuditors[0] = auditor;
+            initialAuditors[1] = auditor2;
+        } else {
+            initialAuditors = new address[](1);
+            initialAuditors[0] = auditor;
+            console2.log("WARNING: ReserveOracle deployed with a SINGLE auditor.");
+            console2.log("         Set AUDITOR_2_ADDRESS and use setSignatureThreshold(2) before production.");
+        }
         ReserveOracle oracle = new ReserveOracle(treasury, initialAuditors);
+        // The constructor defaults the signature threshold to min(2, auditorCount),
+        // so two auditors already require 2-of-2. Raising/lowering it later is a
+        // TREASURY_ROLE action (setSignatureThreshold), not done here.
 
         // 4. MintController (UUPS)
         MintController mintImpl = new MintController();

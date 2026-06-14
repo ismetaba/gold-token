@@ -124,7 +124,9 @@ function PorCard({
                       {parseFloat(vault.totalGoldGrams).toLocaleString()} g
                     </div>
                     <div className="text-xs text-slate-500">
-                      {((parseFloat(vault.totalGoldGrams) / parseFloat(por.totalGoldGrams)) * 100).toFixed(1)}%
+                      {parseFloat(por.totalGoldGrams) > 0
+                        ? ((parseFloat(vault.totalGoldGrams) / parseFloat(por.totalGoldGrams)) * 100).toFixed(1)
+                        : "0.0"}%
                     </div>
                   </div>
                 </div>

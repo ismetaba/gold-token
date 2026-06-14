@@ -3,7 +3,6 @@ package http
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
@@ -19,7 +18,7 @@ import (
 	pkgevents "github.com/ismetaba/gold-token/backend/pkg/events"
 	"github.com/ismetaba/gold-token/backend/pkg/httputil"
 	"github.com/ismetaba/gold-token/backend/services/kyc/internal/domain"
-	"github.com/ismetaba/gold-token/backend/services/kyc/internal/jwtverify"
+	"github.com/ismetaba/gold-token/backend/pkg/jwtverify"
 	"github.com/ismetaba/gold-token/backend/services/kyc/internal/repo"
 	"github.com/ismetaba/gold-token/backend/services/kyc/internal/storage"
 )
@@ -305,7 +304,7 @@ func (h *Handlers) requireAuth(next http.Handler) http.Handler {
 func (h *Handlers) requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		secret := r.Header.Get("X-Admin-Secret")
-		if secret == "" || subtle.ConstantTimeCompare([]byte(secret), []byte(h.adminSecret)) != 1 {
+		if !httputil.ValidAdminSecret(h.adminSecret, secret) {
 			writeErr(w, http.StatusForbidden, "forbidden", "valid X-Admin-Secret header required")
 			return
 		}
@@ -382,13 +381,9 @@ func toResponse(a domain.Application) applicationResponse {
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
+	httputil.WriteJSON(w, status, body)
 }
 
 func writeErr(w http.ResponseWriter, status int, code, msg string) {
-	writeJSON(w, status, map[string]any{
-		"error": map[string]string{"code": code, "message": msg},
-	})
+	httputil.WriteError(w, status, code, msg)
 }

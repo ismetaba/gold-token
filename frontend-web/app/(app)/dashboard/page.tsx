@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { ordersApi, porApi, priceApi, walletApi } from "@/lib/api-client";
-import { formatGrams, formatTRY, formatUSD, truncateAddress, weiToGrams } from "@/lib/utils";
+import { ordersApi, porApi, priceApi, tryToUsd, walletApi } from "@/lib/api-client";
+import { formatGrams, formatTRY, formatUSD, truncateAddress } from "@/lib/utils";
 import type { GoldPrice, Order, ProofOfReserve, Wallet } from "@/lib/types";
 import { ArrowRight, CheckCircle, Clock, RefreshCw, Shield, TrendingUp, Wallet as WalletIcon } from "lucide-react";
 import Link from "next/link";
@@ -19,6 +19,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let ignore = false;
     const load = async () => {
       const [walletRes, priceRes, ordersRes, porRes] = await Promise.allSettled([
         walletApi.getWallet(),
@@ -26,6 +27,7 @@ export default function DashboardPage() {
         ordersApi.listOrders(),
         porApi.getLatest(),
       ]);
+      if (ignore) return;
       if (walletRes.status === "fulfilled") setWallet(walletRes.value.data);
       if (priceRes.status === "fulfilled") setPrice(priceRes.value.data.price);
       if (ordersRes.status === "fulfilled") setRecentOrders(ordersRes.value.data.slice(0, 3));
@@ -33,6 +35,9 @@ export default function DashboardPage() {
       setLoading(false);
     };
     load();
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   // Compute portfolio value
@@ -121,7 +126,7 @@ export default function DashboardPage() {
           </div>
           {price && (
             <p className="text-xs text-yellow-800">
-              ≈ {portfolioTRY ? formatUSD((parseFloat(portfolioTRY) / 33).toFixed(2)) : "—"}
+              ≈ {portfolioTRY ? formatUSD(tryToUsd(parseFloat(portfolioTRY)).toFixed(2)) : "—"}
             </p>
           )}
         </div>

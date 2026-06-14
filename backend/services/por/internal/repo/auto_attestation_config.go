@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -37,7 +38,7 @@ func (r *pgAutoAttestationConfigRepo) Get(ctx context.Context) (domain.AutoAttes
 	var cfg domain.AutoAttestationConfig
 	var lastRunAt *time.Time
 	if err := row.Scan(&cfg.ID, &cfg.CronExpression, &cfg.Enabled, &lastRunAt); err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.AutoAttestationConfig{}, ErrNotFound
 		}
 		return domain.AutoAttestationConfig{}, fmt.Errorf("get auto attestation config: %w", err)

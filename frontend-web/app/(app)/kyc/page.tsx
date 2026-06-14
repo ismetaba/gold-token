@@ -83,10 +83,17 @@ export default function KycPage() {
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   useEffect(() => {
+    let ignore = false;
     kycApi.getSession().then((r) => {
+      if (ignore) return;
       setSession(r.data);
       setLoading(false);
-    }).catch(() => setLoading(false));
+    }).catch(() => {
+      if (!ignore) setLoading(false);
+    });
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   const startSession = async () => {

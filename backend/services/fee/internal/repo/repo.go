@@ -137,11 +137,23 @@ func scanSchedules(rows pgx.Rows) ([]domain.FeeSchedule, error) {
 		); err != nil {
 			return nil, fmt.Errorf("scan schedule: %w", err)
 		}
-		s.TierMinGramsWei = mustParseBigInt(minStr)
-		if maxStr != nil {
-			s.TierMaxGramsWei = mustParseBigInt(*maxStr)
+		tierMin, err := parseBigInt(minStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse tier min for schedule %s: %w", s.ID, err)
 		}
-		s.MinFeeWei = mustParseBigInt(feeStr)
+		s.TierMinGramsWei = tierMin
+		if maxStr != nil {
+			tierMax, err := parseBigInt(*maxStr)
+			if err != nil {
+				return nil, fmt.Errorf("parse tier max for schedule %s: %w", s.ID, err)
+			}
+			s.TierMaxGramsWei = tierMax
+		}
+		minFee, err := parseBigInt(feeStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse min fee for schedule %s: %w", s.ID, err)
+		}
+		s.MinFeeWei = minFee
 		out = append(out, s)
 	}
 	return out, rows.Err()
@@ -191,17 +203,29 @@ func (r *pgLedgerRepo) List(ctx context.Context, limit, offset int) ([]domain.Le
 		); err != nil {
 			return nil, fmt.Errorf("scan ledger entry: %w", err)
 		}
-		e.AmountWei = mustParseBigInt(amtStr)
-		e.FeeWei = mustParseBigInt(feeStr)
+		amt, err := parseBigInt(amtStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse amount for ledger entry %s: %w", e.ID, err)
+		}
+		fee, err := parseBigInt(feeStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse fee for ledger entry %s: %w", e.ID, err)
+		}
+		e.AmountWei = amt
+		e.FeeWei = fee
 		out = append(out, e)
 	}
 	return out, rows.Err()
 }
 
-func mustParseBigInt(s string) *big.Int {
-	n := new(big.Int)
-	n.SetString(s, 10)
-	return n
+// parseBigInt parses a base-10 integer string, returning an error rather than
+// silently yielding zero on malformed input — critical on fee/amount paths.
+func parseBigInt(s string) (*big.Int, error) {
+	n, ok := new(big.Int).SetString(s, 10)
+	if !ok {
+		return nil, fmt.Errorf("invalid integer value %q", s)
+	}
+	return n, nil
 }
 
 var _ = time.Now

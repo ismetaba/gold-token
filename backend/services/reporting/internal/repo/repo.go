@@ -152,20 +152,24 @@ func (r *pgQueryRepo) ComplianceSummary(ctx context.Context) (domain.ComplianceS
 	var s domain.ComplianceSummary
 
 	// Compliance screenings.
-	_ = r.pool.QueryRow(ctx,
+	if err := r.pool.QueryRow(ctx,
 		`SELECT
 			COUNT(*) AS total,
 			COUNT(*) FILTER (WHERE status = 'approved') AS approved,
 			COUNT(*) FILTER (WHERE status = 'rejected') AS rejected
-		 FROM compliance.compliance_checks`).Scan(&s.TotalScreenings, &s.ApprovedCount, &s.RejectedCount)
+		 FROM compliance.compliance_checks`).Scan(&s.TotalScreenings, &s.ApprovedCount, &s.RejectedCount); err != nil {
+		return domain.ComplianceSummary{}, fmt.Errorf("compliance screenings summary: %w", err)
+	}
 
 	// KYC applications.
-	_ = r.pool.QueryRow(ctx,
+	if err := r.pool.QueryRow(ctx,
 		`SELECT
 			COUNT(*) FILTER (WHERE status = 'pending' OR status = 'under_review') AS pending,
 			COUNT(*) FILTER (WHERE status = 'approved') AS approved,
 			COUNT(*) FILTER (WHERE status = 'rejected') AS rejected
-		 FROM kyc.applications`).Scan(&s.PendingKYC, &s.ApprovedKYC, &s.RejectedKYC)
+		 FROM kyc.applications`).Scan(&s.PendingKYC, &s.ApprovedKYC, &s.RejectedKYC); err != nil {
+		return domain.ComplianceSummary{}, fmt.Errorf("kyc applications summary: %w", err)
+	}
 
 	return s, nil
 }

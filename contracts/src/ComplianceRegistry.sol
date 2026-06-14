@@ -24,7 +24,18 @@ contract ComplianceRegistry is
         mapping(bytes2 => bool) jurisdictionBlocked;
         mapping(bytes32 => bool) travelRuleApproved; // hash(from,to,amount) => approved
         uint256 travelRuleThreshold;
+        // ── Upgrade timelock (appended at END to preserve storage layout) ──
+        uint256 upgradeDelay;
+        address scheduledImpl;
+        uint256 scheduledAt;
     }
+
+    /// @dev Default upgrade timelock: 48 hours.
+    uint256 private constant DEFAULT_UPGRADE_DELAY = 48 hours;
+
+    event UpgradeScheduled(address indexed newImpl, uint256 eligibleAt);
+    event UpgradeCancelled(address indexed cancelledImpl);
+    event UpgradeDelayUpdated(uint256 newDelay);
 
     // keccak256(abi.encode(uint256(keccak256("gold.compliance.storage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant STORAGE_LOCATION =
@@ -61,7 +72,9 @@ contract ComplianceRegistry is
         _grantRole(Roles.KYC_WRITER_ROLE, kycWriter);
         _grantRole(Roles.COMPLIANCE_OFFICER_ROLE, complianceOfficer);
 
-        _s().travelRuleThreshold = travelRuleThreshold_;
+        RegStorage storage $ = _s();
+        $.travelRuleThreshold = travelRuleThreshold_;
+        $.upgradeDelay = DEFAULT_UPGRADE_DELAY;
         emit TravelRuleThresholdUpdated(travelRuleThreshold_);
     }
 
@@ -243,7 +256,49 @@ contract ComplianceRegistry is
     // UUPS
     // ──────────────────────────────────────────────────────────────────────
 
+    function scheduleUpgrade(address newImpl) external onlyRole(Roles.UPGRADER_ROLE) {
+        if (newImpl == address(0)) revert Errors.ZeroAddress();
+        RegStorage storage $ = _s();
+        $.scheduledImpl = newImpl;
+        $.scheduledAt = block.timestamp;
+        emit UpgradeScheduled(newImpl, block.timestamp + $.upgradeDelay);
+    }
+
+    function cancelScheduledUpgrade() external onlyRole(Roles.UPGRADER_ROLE) {
+        RegStorage storage $ = _s();
+        address cancelled = $.scheduledImpl;
+        $.scheduledImpl = address(0);
+        $.scheduledAt = 0;
+        emit UpgradeCancelled(cancelled);
+    }
+
+    function setUpgradeDelay(uint256 newDelay) external onlyRole(Roles.TREASURY_ROLE) {
+        _s().upgradeDelay = newDelay;
+        emit UpgradeDelayUpdated(newDelay);
+    }
+
+    function upgradeDelay() external view returns (uint256) {
+        return _s().upgradeDelay;
+    }
+
+    function scheduledUpgrade() external view returns (address impl, uint256 scheduledAt) {
+        RegStorage storage $ = _s();
+        return ($.scheduledImpl, $.scheduledAt);
+    }
+
+    /// @dev UPGRADER_ROLE + on-chain timelock: target must have been scheduled at least
+    ///      `upgradeDelay` seconds earlier.
     function _authorizeUpgrade(address newImpl) internal override onlyRole(Roles.UPGRADER_ROLE) {
         if (newImpl == address(0)) revert Errors.ZeroAddress();
+        RegStorage storage $ = _s();
+        if ($.scheduledImpl != newImpl || $.scheduledAt == 0) {
+            revert Errors.UpgradeNotTimelocked();
+        }
+        uint256 eligibleAt = $.scheduledAt + $.upgradeDelay;
+        if (block.timestamp < eligibleAt) {
+            revert Errors.UpgradeTimelockActive(eligibleAt);
+        }
+        $.scheduledImpl = address(0);
+        $.scheduledAt = 0;
     }
 }

@@ -13,7 +13,6 @@ package main
 import (
 	"context"
 	"errors"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -24,9 +23,10 @@ import (
 
 	pkgevents "github.com/ismetaba/gold-token/backend/pkg/events"
 	"github.com/ismetaba/gold-token/backend/pkg/obs"
+	"github.com/ismetaba/gold-token/backend/pkg/server"
 	"github.com/ismetaba/gold-token/backend/services/kyc/internal/config"
 	kychttp "github.com/ismetaba/gold-token/backend/services/kyc/internal/http"
-	"github.com/ismetaba/gold-token/backend/services/kyc/internal/jwtverify"
+	"github.com/ismetaba/gold-token/backend/pkg/jwtverify"
 	"github.com/ismetaba/gold-token/backend/services/kyc/internal/repo"
 	"github.com/ismetaba/gold-token/backend/services/kyc/internal/storage"
 )
@@ -72,7 +72,7 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 	}
 
 	// 3. JWT verifier (public-key only; no signing needed)
-	verifier, err := jwtverify.New(cfg.JWTPublicKeyFile)
+	verifier, err := jwtverify.New(cfg.JWTPublicKeyFile, cfg.Env)
 	if err != nil {
 		return err
 	}
@@ -95,30 +95,6 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 
 	// 6. HTTP server
 	handlers := kychttp.NewHandlers(appRepo, store, verifier, bus, cfg.AdminSecret, log)
-	srv := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           handlers.Routes(cfg.Env),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       30 * time.Second, // generous for file uploads
-		WriteTimeout:      15 * time.Second,
-	}
-
-	errCh := make(chan error, 1)
-	go func() {
-		log.Info("http listen", zap.String("addr", cfg.HTTPAddr))
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
-
-	select {
-	case err := <-errCh:
-		return err
-	case <-ctx.Done():
-		log.Info("shutting down")
-		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutCtx)
-		return nil
-	}
+	srv := server.NewHTTPServer(cfg.HTTPAddr, handlers.Routes(cfg.Env), server.Timeouts{ReadHeader: 5 * time.Second, Read: 30 * time.Second, Write: 15 * time.Second})
+	return server.Serve(ctx, srv, log, 10*time.Second)
 }

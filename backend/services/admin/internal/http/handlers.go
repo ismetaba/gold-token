@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -331,7 +330,7 @@ func (h *Handlers) listAPIKeys(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) requireMasterSecret(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		secret := r.Header.Get("X-Admin-Secret")
-		if subtle.ConstantTimeCompare([]byte(secret), []byte(h.masterSecret)) != 1 {
+		if !httputil.ValidAdminSecret(h.masterSecret, secret) {
 			writeError(w, http.StatusForbidden, "forbidden", "valid X-Admin-Secret required")
 			return
 		}
@@ -389,14 +388,9 @@ func claimsFromCtx(ctx context.Context) tokens.AdminClaims {
 // ── response helpers ─────────────────────────────────────────────────────────
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	httputil.WriteJSON(w, status, v)
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, map[string]any{
-		"error":   code,
-		"message": message,
-	})
+	httputil.WriteError(w, status, code, message)
 }

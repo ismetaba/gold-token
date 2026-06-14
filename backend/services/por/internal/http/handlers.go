@@ -3,7 +3,6 @@ package http
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -126,7 +125,7 @@ func (h *Handlers) requireAdmin(next http.Handler) http.Handler {
 		if token == "" {
 			token = r.Header.Get("X-Admin-Token")
 		}
-		if subtle.ConstantTimeCompare([]byte(token), []byte(h.adminToken)) != 1 {
+		if !httputil.ValidAdminSecret(h.adminToken, token) {
 			writeErr(w, http.StatusUnauthorized, "unauthorized", "valid admin token required")
 			return
 		}
@@ -145,7 +144,7 @@ func (h *Handlers) requireAuditorKey(next http.Handler) http.Handler {
 		if token == "" {
 			token = r.Header.Get("X-Auditor-Key")
 		}
-		if subtle.ConstantTimeCompare([]byte(token), []byte(h.auditorAPIKey)) != 1 {
+		if !httputil.ValidAdminSecret(h.auditorAPIKey, token) {
 			writeErr(w, http.StatusUnauthorized, "unauthorized", "valid auditor API key required")
 			return
 		}
@@ -670,13 +669,11 @@ func dbAttestationResponse(a domain.Attestation) map[string]interface{} {
 // ─────────────────────────────────────────────────────────────────────────────
 
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
+	httputil.WriteJSON(w, code, v)
 }
 
 func writeErr(w http.ResponseWriter, code int, errCode, msg string) {
-	writeJSON(w, code, map[string]string{"error": errCode, "message": msg})
+	httputil.WriteError(w, code, errCode, msg)
 }
 
 func queryInt(r *http.Request, key string, def int) int {

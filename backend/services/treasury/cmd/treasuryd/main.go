@@ -11,7 +11,6 @@ package main
 import (
 	"context"
 	"errors"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -22,6 +21,7 @@ import (
 
 	pkgevents "github.com/ismetaba/gold-token/backend/pkg/events"
 	"github.com/ismetaba/gold-token/backend/pkg/obs"
+	"github.com/ismetaba/gold-token/backend/pkg/server"
 
 	"github.com/ismetaba/gold-token/backend/services/treasury/internal/config"
 	trevents "github.com/ismetaba/gold-token/backend/services/treasury/internal/events"
@@ -80,14 +80,16 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 
 	// 3. Repos
 	var (
-		reserveRepo     repo.ReserveRepo
-		settlementRepo  repo.SettlementRepo
-		reconcileRepo   repo.ReconciliationRepo
+		reserveRepo    repo.ReserveRepo
+		settlementRepo repo.SettlementRepo
+		reconcileRepo  repo.ReconciliationRepo
+		txStore        *repo.TxStore
 	)
 	if pool != nil {
 		reserveRepo = repo.NewPGReserveRepo(pool)
 		settlementRepo = repo.NewPGSettlementRepo(pool)
 		reconcileRepo = repo.NewPGReconciliationRepo(pool)
+		txStore = repo.NewTxStore(pool)
 	}
 
 	// 4. Event consumer
@@ -100,32 +102,7 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 	}
 
 	// 5. HTTP server
-	handlers := trhttp.NewHandlers(reserveRepo, settlementRepo, reconcileRepo, bus, cfg.AdminSecret, log)
-	srv := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           handlers.Routes(cfg.Env),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
-	}
-
-	errCh := make(chan error, 1)
-	go func() {
-		log.Info("http listen", zap.String("addr", cfg.HTTPAddr))
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
-
-	// 6. Graceful shutdown
-	select {
-	case err := <-errCh:
-		return err
-	case <-ctx.Done():
-		log.Info("shutting down")
-		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutCtx)
-		return nil
-	}
+	handlers := trhttp.NewHandlers(reserveRepo, settlementRepo, reconcileRepo, txStore, bus, cfg.AdminSecret, log)
+	srv := server.NewHTTPServer(cfg.HTTPAddr, handlers.Routes(cfg.Env), server.DefaultTimeouts())
+	return server.Serve(ctx, srv, log, 10*time.Second)
 }

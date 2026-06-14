@@ -2,7 +2,6 @@ package http
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -142,9 +141,13 @@ func (h *Handlers) generate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// runJob executes a report job in the background and updates its status.
+// runJob executes a report job in the background and updates its status. It
+// intentionally uses a fresh context (not the request's, which is cancelled
+// once the response is sent) but bounds it with a timeout so a stuck
+// generation cannot run — or hold resources — indefinitely.
 func (h *Handlers) runJob(job domain.ReportJob) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
 
 	running := "running"
 	_ = h.jobs.UpdateStatus(ctx, job.ID, running, "", nil)
@@ -269,7 +272,7 @@ func (h *Handlers) download(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		secret := r.Header.Get("X-Admin-Secret")
-		if subtle.ConstantTimeCompare([]byte(secret), []byte(h.adminSecret)) != 1 {
+		if !httputil.ValidAdminSecret(h.adminSecret, secret) {
 			writeError(w, http.StatusUnauthorized, "unauthorized", "invalid admin secret")
 			return
 		}
@@ -308,14 +311,9 @@ func parseDateRange(r *http.Request) (time.Time, time.Time) {
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	httputil.WriteJSON(w, status, v)
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, map[string]any{
-		"error":   code,
-		"message": message,
-	})
+	httputil.WriteError(w, status, code, message)
 }
