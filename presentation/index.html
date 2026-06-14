@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GOLD Token — Küresel Tokenize Altın Platformu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --gold-1: #f5d98a;
+    --gold-2: #e6b450;
+    --gold-3: #c9962b;
+    --gold-4: #8a6510;
+    --ink-0: #07080c;
+    --ink-1: #0d1018;
+    --ink-2: #151926;
+    --ink-3: #1d2333;
+    --ink-4: #2a3148;
+    --paper: #f4ecd8;
+    --text: #ece6d5;
+    --muted: #8b8676;
+    --line: rgba(230,180,80,0.18);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    background: radial-gradient(ellipse at top, #14172a 0%, #07080c 60%, #000 100%);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .deck { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+
+  .slide {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5vh 8vw;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(40px);
+    transition: opacity .55s ease, transform .55s cubic-bezier(.2,.7,.2,1), visibility 0s linear .55s;
+  }
+  .slide.active {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(0);
+    transition: opacity .55s ease, transform .55s cubic-bezier(.2,.7,.2,1), visibility 0s linear 0s;
+  }
+  .slide.prev { transform: translateX(-40px); }
+
+  /* shared decorative grid */
+  .grid-overlay {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(230,180,80,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(230,180,80,0.04) 1px, transparent 1px);
+    background-size: 60px 60px;
+    pointer-events: none;
+    mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+  }
+
+  .corner-mark {
+    position: absolute;
+    top: 3vh;
+    left: 3vw;
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 14px;
+    letter-spacing: .35em;
+    color: var(--gold-2);
+    text-transform: uppercase;
+  }
+  .corner-mark::before {
+    content: "";
+    display: inline-block;
+    width: 24px;
+    height: 1px;
+    background: var(--gold-2);
+    vertical-align: middle;
+    margin-right: 12px;
+  }
+
+  .page-num {
+    position: absolute;
+    top: 3vh;
+    right: 3vw;
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 14px;
+    letter-spacing: .25em;
+    color: var(--muted);
+  }
+  .page-num b { color: var(--gold-2); font-weight: 500; }
+
+  .confidential {
+    position: absolute;
+    bottom: 3vh;
+    right: 3vw;
+    font-size: 10px;
+    letter-spacing: .4em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  /* ---------- SLIDE 1: COVER ---------- */
+  .cover { flex-direction: column; text-align: center; }
+  .cover .monogram {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 200px;
+    font-weight: 300;
+    line-height: 1;
+    background: linear-gradient(180deg, var(--gold-1) 0%, var(--gold-3) 60%, var(--gold-4) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -.04em;
+    margin-bottom: 8px;
+    position: relative;
+  }
+  .cover .monogram::after {
+    content: "";
+    display: block;
+    width: 80px;
+    height: 1px;
+    background: var(--gold-2);
+    margin: 24px auto 32px;
+  }
+  .cover h1 {
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 400;
+    font-size: 52px;
+    letter-spacing: .04em;
+    color: var(--paper);
+  }
+  .cover h1 b { color: var(--gold-2); font-weight: 500; font-style: italic; }
+  .cover .tagline {
+    font-size: 14px;
+    letter-spacing: .5em;
+    color: var(--muted);
+    margin-top: 28px;
+    text-transform: uppercase;
+  }
+  .cover .meta {
+    margin-top: 60px;
+    display: flex;
+    gap: 60px;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: .3em;
+    text-transform: uppercase;
+  }
+  .cover .meta span b { color: var(--gold-2); display: block; font-size: 16px; font-family: 'Cormorant Garamond', serif; letter-spacing: .05em; margin-top: 6px; text-transform: none; font-weight: 500; }
+
+  .orbit {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 760px;
+    height: 760px;
+    border: 1px solid rgba(230,180,80,0.12);
+    border-radius: 50%;
+    pointer-events: none;
+    animation: spin 60s linear infinite;
+  }
+  .orbit::before, .orbit::after {
+    content: "";
+    position: absolute;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--gold-2);
+    box-shadow: 0 0 20px var(--gold-2);
+  }
+  .orbit::before { top: -3px; left: 50%; }
+  .orbit::after { bottom: -3px; left: 50%; }
+  .orbit.outer {
+    width: 980px; height: 980px;
+    border-color: rgba(230,180,80,0.06);
+    animation-duration: 100s;
+    animation-direction: reverse;
+  }
+  @keyframes spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
+
+  /* ---------- GENERAL CONTENT SLIDES ---------- */
+  .slide-content {
+    width: 100%;
+    max-width: 1280px;
+    display: grid;
+    gap: 48px;
+    z-index: 2;
+  }
+  .slide-content.two-col { grid-template-columns: 1fr 1fr; align-items: center; }
+  .slide-content.left { text-align: left; }
+
+  .eyebrow {
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    letter-spacing: .4em;
+    color: var(--gold-2);
+    text-transform: uppercase;
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .eyebrow::before {
+    content: "";
+    width: 32px; height: 1px;
+    background: var(--gold-2);
+  }
+
+  h2.title {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 64px;
+    font-weight: 400;
+    line-height: 1.05;
+    color: var(--paper);
+    margin-bottom: 28px;
+    letter-spacing: -.01em;
+  }
+  h2.title em { color: var(--gold-2); font-style: italic; font-weight: 500; }
+
+  .lede {
+    font-size: 18px;
+    line-height: 1.65;
+    color: #c7c2b3;
+    font-weight: 300;
+    max-width: 560px;
+  }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  .stat {
+    background: rgba(13,16,24,0.7);
+    padding: 32px 28px;
+    backdrop-filter: blur(6px);
+  }
+  .stat .k {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 56px;
+    font-weight: 400;
+    line-height: 1;
+    background: linear-gradient(180deg, var(--gold-1), var(--gold-3));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+  .stat .l {
+    font-size: 12px;
+    letter-spacing: .25em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .stat .d { color: #c7c2b3; font-size: 13px; line-height: 1.5; margin-top: 10px; font-weight: 300; }
+
+  /* ---------- PILLARS ---------- */
+  .pillars {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 24px;
+    margin-top: 32px;
+  }
+  .pillar {
+    border: 1px solid var(--line);
+    padding: 28px 24px;
+    background: linear-gradient(180deg, rgba(230,180,80,0.04), rgba(0,0,0,0));
+    transition: all .4s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .pillar::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 1px;
+    background: linear-gradient(90deg, var(--gold-2), transparent);
+  }
+  .pillar:hover { background: linear-gradient(180deg, rgba(230,180,80,0.10), rgba(0,0,0,0)); transform: translateY(-4px); }
+  .pillar .num {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 14px;
+    color: var(--gold-2);
+    letter-spacing: .2em;
+    margin-bottom: 14px;
+  }
+  .pillar h4 {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 24px;
+    font-weight: 500;
+    color: var(--paper);
+    margin-bottom: 12px;
+    line-height: 1.2;
+  }
+  .pillar p { color: #b8b3a4; font-size: 13px; line-height: 1.55; font-weight: 300; }
+
+  /* ---------- JURISDICTIONS ---------- */
+  .juris-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 32px;
+    margin-top: 40px;
+  }
+  .juris {
+    text-align: center;
+    padding: 32px 18px;
+    border: 1px solid var(--line);
+    background: rgba(13,16,24,0.5);
+    position: relative;
+  }
+  .juris .flag {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 64px;
+    font-weight: 400;
+    background: linear-gradient(180deg, var(--gold-1), var(--gold-3));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    line-height: 1;
+    margin-bottom: 18px;
+  }
+  .juris h5 {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--paper);
+    margin-bottom: 6px;
+  }
+  .juris .reg { font-size: 11px; letter-spacing: .25em; color: var(--gold-2); text-transform: uppercase; margin-bottom: 14px; }
+  .juris .role { font-size: 12px; color: #b8b3a4; line-height: 1.5; }
+
+  /* ---------- TIMELINE ---------- */
+  .timeline {
+    position: relative;
+    margin-top: 60px;
+    padding-top: 40px;
+  }
+  .timeline::before {
+    content: "";
+    position: absolute;
+    top: 60px; left: 4%; right: 4%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--gold-2), transparent);
+  }
+  .phases {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+  }
+  .phase { text-align: center; position: relative; padding-top: 50px; }
+  .phase::before {
+    content: "";
+    position: absolute;
+    top: 14px; left: 50%;
+    transform: translateX(-50%);
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--ink-1);
+    border: 2px solid var(--gold-2);
+    box-shadow: 0 0 0 6px rgba(230,180,80,0.08);
+  }
+  .phase .when { font-size: 11px; letter-spacing: .3em; color: var(--gold-2); text-transform: uppercase; margin-bottom: 8px; }
+  .phase h5 { font-family: 'Cormorant Garamond', serif; font-size: 22px; font-weight: 500; color: var(--paper); margin-bottom: 10px; }
+  .phase p { font-size: 12px; color: #b8b3a4; line-height: 1.5; }
+
+  /* ---------- COMPARISON TABLE ---------- */
+  .compare {
+    margin-top: 36px;
+    border: 1px solid var(--line);
+    background: rgba(13,16,24,0.5);
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .compare th, .compare td {
+    text-align: left;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--line);
+  }
+  .compare th {
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 500;
+    font-size: 18px;
+    color: var(--gold-2);
+    text-transform: none;
+  }
+  .compare th:first-child { color: var(--muted); font-size: 11px; letter-spacing: .25em; text-transform: uppercase; }
+  .compare td { color: #c7c2b3; font-weight: 300; }
+  .compare td:first-child { color: var(--paper); font-weight: 500; }
+  .compare .us { background: rgba(230,180,80,0.06); }
+  .compare .us td { color: var(--paper); }
+  .compare .check { color: var(--gold-2); }
+  .compare .cross { color: #6b6557; }
+
+  /* ---------- TECH STACK ---------- */
+  .layers {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 36px;
+  }
+  .layer {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    align-items: center;
+    gap: 32px;
+    padding: 20px 28px;
+    border: 1px solid var(--line);
+    background: linear-gradient(90deg, rgba(230,180,80,0.05), rgba(0,0,0,0));
+  }
+  .layer .lbl {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--gold-2);
+  }
+  .layer .lbl small { display: block; font-family: 'Inter', sans-serif; font-size: 10px; letter-spacing: .3em; color: var(--muted); text-transform: uppercase; margin-top: 4px; }
+  .layer .tags { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tag {
+    font-size: 11px;
+    padding: 6px 12px;
+    border: 1px solid var(--line);
+    color: #c7c2b3;
+    letter-spacing: .05em;
+    background: rgba(0,0,0,0.3);
+  }
+
+  /* ---------- CLOSING ---------- */
+  .closing { flex-direction: column; text-align: center; }
+  .closing .seal {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 14px;
+    letter-spacing: .5em;
+    color: var(--gold-2);
+    text-transform: uppercase;
+    margin-bottom: 40px;
+  }
+  .closing h1 {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 96px;
+    font-weight: 300;
+    line-height: 1.05;
+    background: linear-gradient(180deg, var(--gold-1), var(--gold-3) 70%, var(--gold-4));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    max-width: 1100px;
+    letter-spacing: -.02em;
+  }
+  .closing h1 em { font-style: italic; }
+  .closing .sub {
+    margin-top: 40px;
+    font-size: 16px;
+    color: var(--muted);
+    max-width: 600px;
+    font-weight: 300;
+    line-height: 1.6;
+  }
+  .closing .signature {
+    margin-top: 80px;
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 24px;
+    color: var(--paper);
+    font-style: italic;
+  }
+  .closing .signature::before, .closing .signature::after {
+    content: "—";
+    color: var(--gold-2);
+    margin: 0 18px;
+  }
+
+  /* ---------- NAVIGATION ---------- */
+  .nav {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+    z-index: 100;
+    padding: 10px 16px;
+    background: rgba(13,16,24,0.6);
+    border: 1px solid var(--line);
+    backdrop-filter: blur(20px);
+    border-radius: 999px;
+  }
+  .nav .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+    cursor: pointer;
+    transition: all .3s ease;
+  }
+  .nav .dot.active { background: var(--gold-2); width: 24px; border-radius: 4px; box-shadow: 0 0 12px var(--gold-2); }
+  .nav .dot:hover { background: var(--gold-1); }
+
+  .arrows {
+    position: fixed;
+    bottom: 28px;
+    z-index: 100;
+    display: flex;
+    gap: 12px;
+  }
+  .arrows.left { left: 28px; }
+  .arrows.right { right: 28px; }
+  .arrow {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: rgba(13,16,24,0.6);
+    color: var(--gold-2);
+    backdrop-filter: blur(20px);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    transition: all .3s ease;
+  }
+  .arrow:hover { background: var(--gold-2); color: var(--ink-1); transform: scale(1.08); }
+
+  .hint {
+    position: fixed;
+    bottom: 90px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    letter-spacing: .3em;
+    color: var(--muted);
+    text-transform: uppercase;
+    z-index: 100;
+    opacity: .6;
+  }
+  .hint kbd {
+    background: rgba(230,180,80,0.1);
+    border: 1px solid var(--line);
+    padding: 2px 6px;
+    margin: 0 2px;
+    border-radius: 3px;
+    color: var(--gold-2);
+    font-family: 'Inter', monospace;
+  }
+
+  /* Architecture viz */
+  .arch {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-top: 36px;
+  }
+  .arch-col {
+    border: 1px solid var(--line);
+    background: rgba(13,16,24,0.5);
+    padding: 22px;
+  }
+  .arch-col .label {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 18px;
+    color: var(--gold-2);
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .arch-col ul { list-style: none; }
+  .arch-col li {
+    font-size: 13px;
+    color: #c7c2b3;
+    padding: 8px 0;
+    border-bottom: 1px dashed rgba(230,180,80,0.08);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .arch-col li:last-child { border-bottom: none; }
+  .arch-col li::before {
+    content: "◆";
+    color: var(--gold-2);
+    font-size: 8px;
+  }
+
+  @media (max-width: 1100px) {
+    .cover .monogram { font-size: 140px; }
+    .cover h1 { font-size: 36px; }
+    h2.title { font-size: 44px; }
+    .pillars, .juris-row, .phases { grid-template-columns: repeat(2, 1fr); }
+    .slide-content.two-col { grid-template-columns: 1fr; }
+    .closing h1 { font-size: 56px; }
+  }
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
+
+  <!-- SLIDE 1: COVER -->
+  <section class="slide cover active">
+    <div class="grid-overlay"></div>
+    <div class="orbit outer"></div>
+    <div class="orbit"></div>
+    <div class="corner-mark">Confidential · 2026</div>
+    <div class="page-num"><b>01</b> / 09</div>
+    <div>
+      <div class="monogram">G</div>
+      <h1>GOLD <b>Token</b></h1>
+      <div class="tagline">Tokenized Gold · Globally Allocated</div>
+      <div class="meta">
+        <span>Standart<b>1 token = 1 gram</b></span>
+        <span>Saflık<b>%99.99 Au</b></span>
+        <span>Yetki Alanı<b>TR · CH · AE · LI</b></span>
+      </div>
+    </div>
+    <div class="confidential">Board · Strictly Confidential</div>
+  </section>
+
+  <!-- SLIDE 2: MISSION -->
+  <section class="slide">
+    <div class="grid-overlay"></div>
+    <div class="corner-mark">Misyon</div>
+    <div class="page-num"><b>02</b> / 09</div>
+    <div class="slide-content two-col left">
+      <div>
+        <div class="eyebrow">Vizyon</div>
+        <h2 class="title">Altını <em>yeniden</em> tasarlıyoruz —<br/>çağımıza ait.</h2>
+        <p class="lede">
+          Geleneksel altın yatırımı erişilebilirlik, şeffaflık ve likidite arasında bir tercih
+          dayatır. GOLD bu üçünü aynı anda sunar: gram bazlı, dört yetki alanında denetlenebilir,
+          zincir üstü anında transfer edilebilir, fiziksel altına %100 tahsisli.
+        </p>
+      </div>
+      <div class="stat-grid">
+        <div class="stat">
+          <div class="k">1 : 1</div>
+          <div class="l">Fiziksel Tahsis</div>
+          <div class="d">Her token belirli bir altın çubuğa seri no bazında bağlı. Fractional reserve yok.</div>
+        </div>
+        <div class="stat">
+          <div class="k">4×</div>
+          <div class="l">Jurisdiction</div>
+          <div class="d">TR · CH · AE · LI — Ayrı tüzel kişi, ayrı kasa, ayrı veri ikametgâhı.</div>
+        </div>
+        <div class="stat">
+          <div class="k">12</div>
+          <div class="l">Aylık Denetim</div>
+          <div class="d">Big Four bağımsız denetim + Merkle çubuk proof'u, IPFS zincir üstü hash.</div>
+        </div>
+        <div class="stat">
+          <div class="k">∞</div>
+          <div class="l">Şeffaflık</div>
+          <div class="d">Her mint/burn → kasa hareket → denetim → zincir üstü kanıt zinciri.</div>
+        </div>
+      </div>
+    </div>
+    <div class="confidential">Board · Strictly Confidential</div>
+  </section>
+
+  <!-- SLIDE 3: PILLARS -->
+  <section class="slide">
+    <div class="grid-overlay"></div>
+    <div class="corner-mark">Tasarım İlkeleri</div>
+    <div class="page-num"><b>03</b> / 09</div>
+    <div class="slide-content">
+      <div>
+        <div class="eyebrow">Dört Temel Direk</div>
+        <h2 class="title">Mimari <em>sözleşmeleri</em>.</h2>
+      </div>
+      <div class="pillars">
+        <div class="pillar">
+          <div class="num">01</div>
+          <h4>Tahsisli Rezerv</h4>
+          <p>Her token, kasa envanterindeki belirli bir altın çubuğa seri no bazında bağlı. Hiçbir koşulda fractional reserve değil.</p>
+        </div>
+        <div class="pillar">
+          <div class="num">02</div>
+          <h4>Jurisdiction İzolasyonu</h4>
+          <p>Dört ayrı tüzel kişi, kasa, veri ikametgâhı. Tek akıllı sözleşme; uyum katmanında coğrafi kısıtlama.</p>
+        </div>
+        <div class="pillar">
+          <div class="num">03</div>
+          <h4>Denetlenebilirlik</h4>
+          <p>Mint/itfa → kasa hareket → bağımsız denetim → IPFS → zincir üstü hash zinciri. Birinci sınıf vatandaş.</p>
+        </div>
+        <div class="pillar">
+          <div class="num">04</div>
+          <h4>Travel Rule Yerli</h4>
+          <p>Uyum motoru tüm transferleri filtreler. Yaptırımlı adresler ve KYC eksik cüzdanlar zincir üstünde bloklanır.</p>
+        </div>
+      </div>
+    </div>
+    <div class="confidential">Board · Strictly Confidential</div>
+  </section>
+
+  <!-- SLIDE 4: JURISDICTIONS -->
+  <section class="slide">
+    <div class="grid-overlay"></div>
+    <div class="corner-mark">Coğrafi Strateji</div>
+    <div class="page-num"><b>04</b> / 09</div>
+    <div class="slide-content">
+      <div>
+        <div class="eyebrow">Dört Yetki Alanı</div>
+        <h2 class="title">Tek sözleşme, <em>dört bayrak</em>.</h2>
+        <p class="lede">Her jurisdiction farklı bir rol üstlenir — düzenleyici çeşitliliği, talep havuzu ve fiziksel güvenlik için.</p>
+      </div>
+      <div class="juris-row">
+        <div class="juris">
+          <div class="flag">TR</div>
+          <h5>Türkiye</h5>
+          <div class="reg">CMB · SPK</div>
+          <div class="role">Rafineri ve perakende. Çorum the Refinery + İstanbul BIST KMP kasası.</div>
+        </div>
+        <div class="juris">
+          <div class="flag">CH</div>
+          <h5>İsviçre</h5>
+          <div class="reg">FINMA</div>
+          <div class="role">Kurumsal güven katmanı. Zürih Brink's/Loomis kasaları, CHF/EUR rail.</div>
+        </div>
+        <div class="juris">
+          <div class="flag">AE</div>
+          <h5>BAE</h5>
+          <div class="reg">VARA · DMCC</div>
+          <div class="role">Körfez talebi, DMCC kasası, AED/USD rail, MENA distribütör hub'ı.</div>
+        </div>
+        <div class="juris">
+          <div class="flag">LI</div>
+          <h5>Liechtenstein</h5>
+          <div class="reg">FMA · TVTG</div>
+          <div class="role">AB pasaportu, token yasası ile uyumlu ihraç, EEA dağıtımı.</div>
+        </div>
+      </div>
+    </div>
+    <div class="confidential">Board · Strictly Confidential</div>
+  </section>
+
+  <!-- SLIDE 5: ARCHITECTURE -->
+  <section class="slide">
+    <div class="grid-overlay"></div>
+    <div class="corner-mark">Sistem Mimarisi</div>
+    <div class="page-num"><b>05</b> / 09</div>
+    <div class="slide-content">
+      <div>
+        <div class="eyebrow">C4 Konteyner Görünümü</div>
+        <h2 class="title">Üç katman, <em>tek doğruluk kaynağı</em>.</h2>
+      </div>
+      <div class="arch">
+        <div class="arch-col">
+          <div class="label">İstemci Katmanı</div>
+          <ul>
+            <li>Web App — Next.js 14</li>
+            <li>iOS — Swift · SwiftUI</li>
+            <li>Android — Kotlin · Compose</li>
+            <li>Kurumsal API Client</li>
+            <li>Admin Dashboard — RBAC</li>
+          </ul>
+        </div>
+        <div class="arch-col">
+          <div class="label">Off-chain Servisler (Go)</div>
+          <ul>
+            <li>Mint/Burn Orchestrator</li>
+            <li>Compliance · KYC · Travel Rule</li>
+            <li>Vault Integration · Audits</li>
+            <li>Treasury · Reconciliation</li>
+            <li>Proof-of-Reserve Attestor</li>
+            <li>Fee · Notification · Reporting</li>
+          </ul>
+        </div>
+        <div class="arch-col">
+          <div class="label">On-chain & Fiziksel</div>
+          <ul>
+            <li>GOLD ERC-20 (UUPS Proxy)</li>
+            <li>ComplianceRegistry (immutable)</li>
+            <li>ReserveOracle · Merkle root</li>
+            <li>Ethereum · Avalanche · BNB</li>
+            <li>4 Fiziksel Kasa Entegrasyonu</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="confidential">Board · Strictly Confidential</div>
+  </section>
+
+  <!-- SLIDE 6: COMPETITIVE -->
+  <section class="slide">
+    <div class="grid-overlay"></div>
+    <div class="corner-mark">Rekabet Konumlandırması</div>
+    <div class="page-num"><b>06</b> / 09</div>
+    <div class="slide-content">
+      <div>
+        <div class="eyebrow">Pazar</div>
+        <h2 class="title">PAXG ve XAUT'tan <em>nasıl ayrışıyoruz</em>.</h2>
+      </div>
+      <table class="compare">
+        <thead>
+          <tr>
+            <th>Kriter</th>
+            <th>PAXG</th>
+            <th>XAUT</th>
+            <th>GOLD</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Birim</td>
+            <td>1 troy ons</td>
+            <td>1 troy ons</td>
+            <td class="us">1 gram — erişilebilir</td>
+          </tr>
+          <tr>
+            <td>Yetki Alanı</td>
+            <td>1 (NY)</td>
+            <td>1 (CH·offshore)</td>
+            <td class="us">4 (TR·CH·AE·LI)</td>
+          </tr>
+          <tr>
+            <td>Rafineri Sahipliği</td>
+            <td class="cross">Yok</td>
+            <td class="cross">Yok</td>
+            <td class="us check">Dikey entegre</td>
+          </tr>
+          <tr>
+            <td>Denetim Sıklığı</td>
+            <td>Aylık</td>
+            <td>Üç aylık</td>
+            <td class="us">Aylık + Merkle çubuk proof</td>
+          </tr>
+          <tr>
+            <td>Zincir Üstü Kanıt</td>
+            <td>Hash</td>
+            <td>Hash</td>
+            <td class="us">Çubuk-bazlı Merkle ağacı</td>
+          </tr>
+          <tr>
+            <td>Travel Rule</td>
+            <td>Hayır</td>
+            <td>Hayır</td>
+            <td class="us check">Sözleşme katmanında</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="confidential">Board · Strictly Confidential</div>
+  </section>
+
+  <!-- SLIDE 7: TECH -->
+  <section class="slide">
+    <div class="grid-overlay"></div>
+    <div class="corner-mark">Teknoloji Yığını</div>
+    <div class="page-num"><b>07</b> / 09</div>
+    <div class="slide-content">
+      <div>
+        <div class="eyebrow">Stack</div>
+        <h2 class="title">Üretim sınıfı, <em>denetlenebilir</em>.</h2>
+      </div>
+      <div class="layers">
+        <div class="layer">
+          <div class="lbl">Smart Contracts<small>On-chain Layer</small></div>
+          <div class="tags">
+            <span class="tag">Solidity 0.8</span>
+            <span class="tag">Foundry</span>
+            <span class="tag">OpenZeppelin UUPS</span>
+            <span class="tag">19/19 forge test ✓</span>
+            <span class="tag">Sepolia deployed</span>
+          </div>
+        </div>
+        <div class="layer">
+          <div class="lbl">Backend Services<small>Off-chain Layer</small></div>
+          <div class="tags">
+            <span class="tag">Go 1.22</span>
+            <span class="tag">gRPC · REST</span>
+            <span class="tag">PostgreSQL</span>
+            <span class="tag">Redis</span>
+            <span class="tag">NATS Events</span>
+            <span class="tag">Vault HSM</span>
+          </div>
+        </div>
+        <div class="layer">
+          <div class="lbl">Frontend<small>Client Layer</small></div>
+          <div class="tags">
+            <span class="tag">Next.js 14</span>
+            <span class="tag">React Server Components</span>
+            <span class="tag">TailwindCSS</span>
+            <span class="tag">wagmi · viem</span>
+            <span class="tag">WalletConnect</span>
+          </div>
+        </div>
+        <div class="layer">
+          <div class="lbl">Infra & Compliance<small>Platform Layer</small></div>
+          <div class="tags">
+            <span class="tag">Docker · K8s</span>
+            <span class="tag">IPFS Pinning</span>
+            <span class="tag">Sumsub KYC</span>
+            <span class="tag">Chainalysis</span>
+            <span class="tag">Big Four Audit</span>
+            <span class="tag">SOC 2 Type II Hedef</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="confidential">Board · Strictly Confidential</div>
+  </section>
+
+  <!-- SLIDE 8: ROADMAP -->
+  <section class="slide">
+    <div class="grid-overlay"></div>
+    <div class="corner-mark">Yol Haritası</div>
+    <div class="page-num"><b>08</b> / 09</div>
+    <div class="slide-content">
+      <div>
+        <div class="eyebrow">2026 — 2027</div>
+        <h2 class="title">Dört aşama, <em>tek hedef</em>.</h2>
+      </div>
+      <div class="timeline">
+        <div class="phases">
+          <div class="phase">
+            <div class="when">Q2 · 2026</div>
+            <h5>Foundation</h5>
+            <p>Sözleşme audit ✓ · Sepolia ✓ · MVP backend · ilk kasa entegrasyonu (Çorum).</p>
+          </div>
+          <div class="phase">
+            <div class="when">Q3 · 2026</div>
+            <h5>Pilot</h5>
+            <p>Mainnet launch (TR) · davetli yatırımcılar · 100 kg pilot rezerv · ilk denetim raporu.</p>
+          </div>
+          <div class="phase">
+            <div class="when">Q4 · 2026</div>
+            <h5>Expansion</h5>
+            <p>CH + AE jurisdictionları aktif · piyasa yapıcı sözleşmeleri · borsa listeleme (Tier-1).</p>
+          </div>
+          <div class="phase">
+            <div class="when">Q2 · 2027</div>
+            <h5>Scale</h5>
+            <p>LI / AB pasaportu · multi-chain bridge · kurumsal API · 1 ton+ rezerv hedefi.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="confidential">Board · Strictly Confidential</div>
+  </section>
+
+  <!-- SLIDE 9: CLOSING -->
+  <section class="slide closing">
+    <div class="grid-overlay"></div>
+    <div class="orbit outer"></div>
+    <div class="corner-mark">Kapanış</div>
+    <div class="page-num"><b>09</b> / 09</div>
+    <div>
+      <div class="seal">— GOLD · MMXXVI —</div>
+      <h1>Altın <em>değişmedi.</em><br/>Ona <em>erişim</em> değişti.</h1>
+      <p class="sub">1 token. 1 gram. Dört yetki alanı. Sıfır taviz.<br/>Yatırım kurulu için hazırlanmıştır.</p>
+      <div class="signature">Teşekkürler</div>
+    </div>
+    <div class="confidential">Board · Strictly Confidential</div>
+  </section>
+
+</div>
+
+<!-- NAVIGATION -->
+<div class="hint">Sağ/Sol <kbd>←</kbd><kbd>→</kbd> · <kbd>Space</kbd> · <kbd>F</kbd> Fullscreen</div>
+<div class="arrows left"><button class="arrow" id="prev" aria-label="Önceki">‹</button></div>
+<div class="arrows right"><button class="arrow" id="next" aria-label="Sonraki">›</button></div>
+<div class="nav" id="nav"></div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const nav = document.getElementById('nav');
+  let idx = 0;
+
+  slides.forEach((_, i) => {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.addEventListener('click', () => go(i));
+    nav.appendChild(d);
+  });
+  const dots = nav.querySelectorAll('.dot');
+
+  function go(n) {
+    if (n < 0 || n >= slides.length || n === idx) return;
+    slides[idx].classList.remove('active');
+    slides[idx].classList.add('prev');
+    dots[idx].classList.remove('active');
+    idx = n;
+    slides[idx].classList.remove('prev');
+    slides[idx].classList.add('active');
+    dots[idx].classList.add('active');
+  }
+  function next() { go(Math.min(idx + 1, slides.length - 1)); }
+  function prev() { go(Math.max(idx - 1, 0)); }
+
+  document.getElementById('next').addEventListener('click', next);
+  document.getElementById('prev').addEventListener('click', prev);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); next(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); prev(); }
+    else if (e.key === 'Home') { go(0); }
+    else if (e.key === 'End') { go(slides.length - 1); }
+    else if (e.key.toLowerCase() === 'f') {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+  });
+
+  // Touch swipe
+  let touchStartX = 0;
+  document.addEventListener('touchstart', e => touchStartX = e.changedTouches[0].screenX);
+  document.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].screenX - touchStartX;
+    if (Math.abs(dx) > 50) dx < 0 ? next() : prev();
+  });
+</script>
+</body>
+</html>
