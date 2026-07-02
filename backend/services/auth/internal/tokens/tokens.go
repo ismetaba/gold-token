@@ -30,10 +30,16 @@ type Manager struct {
 }
 
 // NewManager loads an RSA key pair from PEM files, or generates an ephemeral
-// 2048-bit key when both paths are empty (local dev only).
-func NewManager(privateKeyFile, publicKeyFile string, accessTTL, refreshTTL time.Duration) (*Manager, error) {
+// 2048-bit key when both paths are empty. The ephemeral path is only permitted
+// when env == "local": in any other environment a missing key file is a hard
+// error (fail-closed) so the service never silently self-signs with a throwaway
+// key that rotates on every restart and cannot be verified by other services.
+func NewManager(privateKeyFile, publicKeyFile, env string, accessTTL, refreshTTL time.Duration) (*Manager, error) {
 	if privateKeyFile == "" && publicKeyFile == "" {
-		// Local dev: generate ephemeral key.
+		if env != "local" {
+			return nil, fmt.Errorf("jwt key files are required when GOLD_ENV=%q (refusing ephemeral self-signing key)", env)
+		}
+		// Local dev only: generate ephemeral key.
 		priv, err := rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {
 			return nil, fmt.Errorf("generate ephemeral key: %w", err)
@@ -111,7 +117,7 @@ func (m *Manager) verify(tokenStr, expectedType string) (uuid.UUID, error) {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return m.publicKey, nil
-	}, jwt.WithIssuer(issuer), jwt.WithExpirationRequired())
+	}, jwt.WithValidMethods([]string{"RS256"}), jwt.WithIssuer(issuer), jwt.WithExpirationRequired())
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("invalid token: %w", err)
 	}

@@ -4,6 +4,7 @@ package events
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -76,12 +77,17 @@ func (c *Consumer) handleMintExecuted(ctx context.Context, data []byte) error {
 	}
 
 	wallet, err := c.wallets.ByAddress(ctx, toAddr)
-	if err != nil {
-		// Wallet not registered in this service yet — skip gracefully.
+	if errors.Is(err, repo.ErrNotFound) {
+		// Wallet not registered in this service yet — skip gracefully (idempotent).
 		c.log.Debug("wallet not found for mint recipient",
 			zap.String("address", toAddr),
 			zap.String("saga_id", env.Data.SagaID))
 		return nil
+	}
+	if err != nil {
+		// A real lookup failure (DB down, etc.) must NOT be swallowed as "not found":
+		// return it so the message is retried instead of permanently dropping the tx log.
+		return fmt.Errorf("lookup wallet by address: %w", err)
 	}
 
 	tx := domain.Transaction{
@@ -135,11 +141,14 @@ func (c *Consumer) handleBurnExecuted(ctx context.Context, data []byte) error {
 	}
 
 	wallet, err := c.wallets.ByAddress(ctx, fromAddr)
-	if err != nil {
+	if errors.Is(err, repo.ErrNotFound) {
 		c.log.Debug("wallet not found for burn sender",
 			zap.String("address", fromAddr),
 			zap.String("saga_id", env.Data.SagaID))
 		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lookup wallet by address: %w", err)
 	}
 
 	tx := domain.Transaction{

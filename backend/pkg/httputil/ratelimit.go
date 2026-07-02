@@ -9,6 +9,13 @@ import (
 	"time"
 )
 
+// maxVisitors caps the number of tracked client keys so a flood of distinct
+// source IPs cannot grow the map without bound between cleanup ticks
+// (memory-exhaustion DoS). When the cap is reached, new keys are refused with a
+// rate-limited response rather than allowed, which is the safe (fail-closed)
+// choice for an abusive-traffic condition.
+const maxVisitors = 100_000
+
 // RateLimiter is a simple per-IP token-bucket rate limiter.
 type RateLimiter struct {
 	mu       sync.Mutex
@@ -87,6 +94,10 @@ func (rl *RateLimiter) allow(ip string) bool {
 	now := time.Now()
 
 	if !exists {
+		// Bounded map: refuse new keys once the cap is hit (fail-closed under flood).
+		if len(rl.visitors) >= maxVisitors {
+			return false
+		}
 		rl.visitors[ip] = &visitor{tokens: rl.rate - 1, lastReset: now}
 		return true
 	}

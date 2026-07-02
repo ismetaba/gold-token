@@ -35,14 +35,18 @@ library Errors {
     error DuplicateAuditorSignature(address signer);
     error InvalidSignatureThreshold(uint256 threshold, uint256 auditorCount);
     error ReserveGrowthExceeded(uint256 previousGrams, uint256 newGrams, uint256 maxGrowthBps);
+    error AttestationTooSoon(uint64 previousTimestamp, uint64 newTimestamp, uint256 minInterval);
+    error InvalidGrowthCap(uint256 provided, uint256 maximum);
 
     // Signatures / Deadlines
     error DeadlineExpired(uint256 deadline);
 
     // Rate limiting
     error RateLimitExceeded(uint256 attempted, uint256 max);
+    error InvalidRateLimit(uint256 window, uint256 max);
 
     // Upgrade
     error UpgradeNotTimelocked();
     error UpgradeTimelockActive(uint256 until);
+    error UpgradeDelayBelowMinimum(uint256 provided, uint256 minimum);
 }

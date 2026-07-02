@@ -4,6 +4,7 @@ package events
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"time"
 
@@ -38,6 +39,7 @@ type Consumer struct {
 	bus      *pkgevents.Bus
 	reserves repo.ReserveRepo
 	settles  repo.SettlementRepo
+	store    *repo.TxStore // atomic + idempotent credit/debit + settlement
 	bus2     *pkgevents.Bus // same instance; alias kept for publish clarity
 	log      *zap.Logger
 	stream   string
@@ -47,6 +49,7 @@ func NewConsumer(
 	bus *pkgevents.Bus,
 	reserves repo.ReserveRepo,
 	settles repo.SettlementRepo,
+	store *repo.TxStore,
 	log *zap.Logger,
 	stream string,
 ) *Consumer {
@@ -54,6 +57,7 @@ func NewConsumer(
 		bus:      bus,
 		reserves: reserves,
 		settles:  settles,
+		store:    store,
 		bus2:     bus,
 		log:      log,
 		stream:   stream,
@@ -96,12 +100,8 @@ func (c *Consumer) handleMintExecuted(ctx context.Context, data []byte) error {
 		}
 	}
 
-	// Credit the reserve.
-	if err := c.reserves.Credit(ctx, acc.ID, amountWei); err != nil {
-		return err
-	}
-
-	// Record settlement.
+	// Build the settlement. reference_id = saga_id makes (reference_id, "mint") the
+	// idempotency key: a redelivered mint.executed maps to the same key.
 	refID, _ := uuid.Parse(env.Data.SagaID)
 	if refID == uuid.Nil {
 		refID = uuid.New()
@@ -119,9 +119,17 @@ func (c *Consumer) handleMintExecuted(ctx context.Context, data []byte) error {
 		SettledAt:      &now,
 		CreatedAt:      now,
 	}
-	if err := c.settles.Create(ctx, s); err != nil {
-		c.log.Error("create settlement failed", zap.Error(err))
-		// Non-fatal: reserve already credited; settlement will be re-tried on replay.
+
+	// Atomically record the settlement AND credit the reserve. A duplicate delivery
+	// hits the unique idempotency key and returns ErrAlreadyProcessed — ack without
+	// double-crediting. Any other error is returned so the message is retried.
+	if err := c.store.ApplySettlementIdempotent(ctx, acc.ID, true, s); err != nil {
+		if errors.Is(err, repo.ErrAlreadyProcessed) {
+			c.log.Info("mint executed already settled; skipping (idempotent)",
+				zap.String("saga_id", env.Data.SagaID))
+			return nil
+		}
+		return err
 	}
 
 	// Publish treasury settlement event.
@@ -169,10 +177,6 @@ func (c *Consumer) handleBurnExecuted(ctx context.Context, data []byte) error {
 		}
 	}
 
-	if err := c.reserves.Debit(ctx, acc.ID, amountWei); err != nil {
-		return err
-	}
-
 	refID, _ := uuid.Parse(env.Data.SagaID)
 	if refID == uuid.Nil {
 		refID = uuid.New()
@@ -190,8 +194,15 @@ func (c *Consumer) handleBurnExecuted(ctx context.Context, data []byte) error {
 		SettledAt:      &now,
 		CreatedAt:      now,
 	}
-	if err := c.settles.Create(ctx, s); err != nil {
-		c.log.Error("create settlement failed", zap.Error(err))
+
+	// Atomically record the settlement AND debit the reserve; idempotent on redelivery.
+	if err := c.store.ApplySettlementIdempotent(ctx, acc.ID, false, s); err != nil {
+		if errors.Is(err, repo.ErrAlreadyProcessed) {
+			c.log.Info("burn executed already settled; skipping (idempotent)",
+				zap.String("saga_id", env.Data.SagaID))
+			return nil
+		}
+		return err
 	}
 
 	_ = pkgevents.Publish(ctx, c.bus2, pkgevents.Envelope[map[string]any]{

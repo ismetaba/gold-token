@@ -31,7 +31,11 @@ CREATE TABLE treasury.settlements (
 );
 
 CREATE INDEX idx_settlements_account ON treasury.settlements (account_id, created_at DESC);
-CREATE INDEX idx_settlements_reference ON treasury.settlements (reference_id, reference_type);
+-- UNIQUE: (reference_id, reference_type) is the idempotency key. Duplicate event
+-- delivery (e.g. a mint.executed redelivered by JetStream) must NOT credit/debit the
+-- reserve twice; the settlement insert conflicts and the handler treats it as an
+-- already-processed no-op. See TxStore.ApplySettlementIdempotent.
+CREATE UNIQUE INDEX idx_settlements_reference ON treasury.settlements (reference_id, reference_type);
 CREATE INDEX idx_settlements_status ON treasury.settlements (status) WHERE status != 'settled';
 
 -- reconciliation_logs: periodic balance-verification records.

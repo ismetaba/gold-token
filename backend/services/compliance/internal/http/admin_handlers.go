@@ -38,14 +38,17 @@ func NewAdminHandlers(
 }
 
 // MountAdminRoutes attaches admin routes under r at /compliance/monitoring and
-// /compliance/rules. Callers are responsible for applying authentication
-// middleware before mounting.
-func (h *AdminHandlers) MountAdminRoutes(r chi.Router) {
+// /compliance/rules, each gated by the supplied auth middleware. These endpoints
+// list/trigger sanctions monitoring and mutate jurisdiction rules, so they must
+// never be reachable without authentication.
+func (h *AdminHandlers) MountAdminRoutes(r chi.Router, requireAuth func(http.Handler) http.Handler) {
 	r.Route("/compliance/monitoring", func(r chi.Router) {
+		r.Use(requireAuth)
 		r.Get("/", h.listMonitoring)
 		r.Post("/run", h.runMonitoring)
 	})
 	r.Route("/compliance/rules", func(r chi.Router) {
+		r.Use(requireAuth)
 		r.Get("/", h.listRules)
 		r.Patch("/{id}", h.updateRule)
 	})

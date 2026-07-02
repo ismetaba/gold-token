@@ -67,7 +67,7 @@ func (v *Verifier) VerifyAccess(tokenStr string) (uuid.UUID, error) {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return v.publicKey, nil
-	}, jwt.WithIssuer(issuer), jwt.WithExpirationRequired())
+	}, jwt.WithValidMethods([]string{"RS256"}), jwt.WithIssuer(issuer), jwt.WithExpirationRequired())
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("invalid token: %w", err)
 	}

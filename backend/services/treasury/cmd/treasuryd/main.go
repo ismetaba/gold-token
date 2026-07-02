@@ -94,7 +94,7 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 
 	// 4. Event consumer
 	if bus != nil && reserveRepo != nil {
-		cons := trevents.NewConsumer(bus, reserveRepo, settlementRepo, log, cfg.NATSStream)
+		cons := trevents.NewConsumer(bus, reserveRepo, settlementRepo, txStore, log, cfg.NATSStream)
 		if err := cons.Start(ctx); err != nil {
 			return err
 		}

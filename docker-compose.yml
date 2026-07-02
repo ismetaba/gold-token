@@ -27,7 +27,9 @@ services:
       POSTGRES_PASSWORD: gold
       POSTGRES_DB: gold
     ports:
-      - "5432:5432"
+      # Bind to loopback so the DB (with trivial local creds) is never reachable
+      # off-host. Other containers reach it over the compose network regardless.
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./docker/postgres:/docker-entrypoint-initdb.d:ro
@@ -43,8 +45,10 @@ services:
     restart: unless-stopped
     command: ["-c", "/etc/nats/nats.conf"]
     ports:
-      - "4222:4222"   # client
-      - "8222:8222"   # HTTP monitoring
+      # Loopback-only: the local NATS runs without auth (see docker/nats/nats.conf),
+      # so it must not be reachable off-host. In-cluster clients use the compose network.
+      - "127.0.0.1:4222:4222"   # client
+      - "127.0.0.1:8222:8222"   # HTTP monitoring
     volumes:
       - ./docker/nats/nats.conf:/etc/nats/nats.conf:ro
       - nats-data:/data
@@ -57,7 +61,7 @@ services:
 
   # One-shot init container: creates the GOLD JetStream stream.
   nats-init:
-    image: natsio/nats-box:latest
+    image: natsio/nats-box:0.14.5
     depends_on:
       nats:
         condition: service_healthy
@@ -76,7 +80,9 @@ services:
       - softhsm-tokens:/var/lib/softhsm/tokens
 
   anvil:
-    image: ghcr.io/foundry-rs/foundry:latest
+    # Pinned off the mutable :latest tag. 'stable' is the maintained release channel;
+    # pin to a digest for full reproducibility.
+    image: ghcr.io/foundry-rs/foundry:stable
     restart: unless-stopped
     entrypoint: ["anvil"]
     command:
@@ -88,7 +94,8 @@ services:
       - "--state-interval=300"        # checkpoint state every 5 min
       - "--dump-state=/data/anvil-state.json"
     ports:
-      - "8545:8545"
+      # Loopback-only: local dev chain, not for off-host access.
+      - "127.0.0.1:8545:8545"
     volumes:
       - anvil-data:/data
     healthcheck:
@@ -547,7 +554,9 @@ services:
   # ── Block Explorer ────────────────────────────────────────────────────────────
 
   blockscout:
-    image: blockscout/blockscout:latest
+    # Pinned off :latest for reproducibility (local block explorer). Verify/bump the
+    # tag against the registry; pin to a digest for full reproducibility.
+    image: blockscout/blockscout:6.8.0
     restart: unless-stopped
     depends_on:
       postgres:

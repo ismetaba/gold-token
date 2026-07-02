@@ -55,12 +55,14 @@ interface IMintController {
     function setMaxReserveAge(uint256 ageSeconds) external;
     function setRateLimit(uint256 window, uint256 max) external;
     function setFeeRecipient(address newFeeRecipient) external;
+    function setOracle(address newOracle) external;
 
     // View
     function approvalThreshold() external view returns (uint8);
     function totalApprovers() external view returns (uint8);
     function maxReserveAge() external view returns (uint256);
     function feeRecipient() external view returns (address);
+    function oracle() external view returns (address);
     function rateLimit() external view returns (uint256 window, uint256 max);
     function getProposal(bytes32 proposalId) external view returns (Proposal memory);
     function isAllocationUsed(bytes32 allocationId) external view returns (bool);
@@ -85,4 +87,5 @@ interface IMintController {
     event MaxReserveAgeUpdated(uint256 newAgeSeconds);
     event RateLimitUpdated(uint256 window, uint256 max);
     event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
+    event OracleUpdated(address indexed oldOracle, address indexed newOracle);
 }

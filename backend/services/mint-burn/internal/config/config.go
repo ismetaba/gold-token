@@ -76,6 +76,23 @@ func FromEnv() (*Config, error) {
 				return nil, fmt.Errorf("missing required env: %s", k)
 			}
 		}
+
+		// The stub signer holds a raw ECDSA key in the process; it must never sign
+		// mint/burn transactions outside local. Require the HSM-backed signer and its
+		// PKCS#11 parameters in every real environment.
+		if c.SignerType != "softhsm" {
+			return nil, fmt.Errorf("SIGNER_TYPE must be \"softhsm\" when GOLD_ENV=%q (got %q); the in-process stub key is local-only", c.Env, c.SignerType)
+		}
+		for k, v := range map[string]string{
+			"SOFTHSM2_LIB":         c.SoftHSMLib,
+			"SOFTHSM2_TOKEN_LABEL": c.SoftHSMTokenLabel,
+			"SOFTHSM2_PIN":         c.SoftHSMPin,
+			"SOFTHSM2_KEY_LABEL":   c.SoftHSMKeyLabel,
+		} {
+			if v == "" {
+				return nil, fmt.Errorf("missing required env: %s", k)
+			}
+		}
 	}
 	return c, nil
 }

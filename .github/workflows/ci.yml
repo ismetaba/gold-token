@@ -96,7 +96,9 @@ jobs:
           govulncheck ./...
 
       - name: gosec
-        uses: securego/gosec@master
+        # Pinned to a released tag rather than the mutable @master ref (supply-chain
+        # hygiene). Bump deliberately; prefer a full commit SHA when updating.
+        uses: securego/gosec@v2.21.4
         with:
           args: -exclude-dir=vendor -fmt sarif -out gosec.sarif ./backend/...
 

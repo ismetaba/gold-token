@@ -13,6 +13,16 @@ import { BurnController } from "../src/BurnController.sol";
 /// @notice Testnet dağıtım script'i.
 /// @dev Mainnet öncesi: Treasury Safe gerçek 3/5 çoklu-imza olmalı.
 ///      Bu script dev/staging için tek EOA ile çalışır.
+///
+///      ⚠ ROLE SEPARATION (production): this script grants DEFAULT_ADMIN, TREASURY and
+///      UPGRADER roles to a single `treasury` address, so one key can both schedule and
+///      apply upgrades. For mainnet, `treasury` MUST be a Gnosis Safe (3/5), and
+///      UPGRADER_ROLE should be held by a SEPARATE OpenZeppelin TimelockController or an
+///      independent Safe (not the treasury admin key). The contracts also enforce a
+///      MIN_UPGRADE_DELAY floor and snapshot the eligibility at schedule time so the
+///      timelock cannot be zeroed after scheduling, but role separation remains the
+///      primary control — provision a distinct UPGRADER_ADDRESS and grant/transfer
+///      UPGRADER_ROLE to it before go-live.
 contract Deploy is Script {
     function run() external {
         uint256 deployerPk = vm.envUint("DEPLOYER_PRIVATE_KEY");
@@ -106,6 +116,10 @@ contract Deploy is Script {
         // 6. Token controller'larını bağla
         token.setMintController(address(minter));
         token.setBurnController(address(burner));
+
+        // 7. Register the token on the registry so it can consume single-use Travel Rule
+        //    approvals in screenTransfer. Without this, above-threshold transfers revert.
+        compliance.setToken(address(token));
 
         vm.stopBroadcast();
 

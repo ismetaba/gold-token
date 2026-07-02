@@ -193,8 +193,9 @@ contract ReserveOracleTest is BaseTest {
         _publishReserve(1000 * 1e18); // baseline
         assertEq(oracle.maxGrowthBps(), 5000); // +50% default
 
-        // Jump to >50% growth: 1600 grams (>1500 cap)
-        vm.warp(block.timestamp + 1);
+        // Jump to >50% growth: 1600 grams (>1500 cap). Warp past the min attestation
+        // interval so the growth cap (not the anti-batching guard) is the tripped rule.
+        vm.warp(block.timestamp + 1 hours);
         IReserveOracle.Attestation memory a = _att(1600 * 1e18);
         bytes32 digest = _digest(a);
         bytes[] memory sigs = new bytes[](2);
@@ -211,7 +212,7 @@ contract ReserveOracleTest is BaseTest {
 
     function test_publish_growthWithinCapSucceeds() public {
         _publishReserve(1000 * 1e18);
-        vm.warp(block.timestamp + 1);
+        vm.warp(block.timestamp + 1 hours);
         _publishReserve(1500 * 1e18); // exactly +50% — allowed
         assertEq(oracle.latestAttestedGrams(), 1500 * 1e18);
     }
@@ -220,6 +221,40 @@ contract ReserveOracleTest is BaseTest {
         // A large first attestation must succeed (no baseline to compare against).
         _publishReserve(1_000_000 * 1e18);
         assertEq(oracle.latestAttestedGrams(), 1_000_000 * 1e18);
+    }
+
+    /// @dev Anti-batching: a second attestation within the min interval must be rejected,
+    ///      so the per-step growth cap cannot be compounded within a single block/tx.
+    function test_publish_rejectsAttestationWithinMinInterval() public {
+        assertEq(oracle.minAttestationInterval(), 1 hours);
+        _publishReserve(1_000 * 1e18);
+
+        vm.warp(block.timestamp + 1); // only 1 second later
+        IReserveOracle.Attestation memory a = _att(1_100 * 1e18);
+        bytes32 digest = _digest(a);
+        bytes[] memory sigs = new bytes[](2);
+        sigs[0] = _sign(auditorPk, digest);
+        sigs[1] = _sign(auditor2Pk, digest);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Errors.AttestationTooSoon.selector,
+                uint64(block.timestamp - 1),
+                uint64(block.timestamp),
+                uint256(1 hours)
+            )
+        );
+        oracle.publish(a, sigs);
+
+        // After the interval elapses the same attestation is accepted.
+        vm.warp(block.timestamp + 1 hours);
+        IReserveOracle.Attestation memory a2 = _att(1_100 * 1e18);
+        bytes32 d2 = _digest(a2);
+        bytes[] memory sigs2 = new bytes[](2);
+        sigs2[0] = _sign(auditorPk, d2);
+        sigs2[1] = _sign(auditor2Pk, d2);
+        oracle.publish(a2, sigs2);
+        assertEq(oracle.latestAttestedGrams(), 1_100 * 1e18);
     }
 
     function test_timeSinceLatest_staleDetection() public {

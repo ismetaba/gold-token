@@ -40,16 +40,17 @@ type Config struct {
 }
 
 func FromEnv() (*Config, error) {
+	env := getenv("GOLD_ENV", "local")
 	c := &Config{
-		Env:      getenv("GOLD_ENV", "local"),
+		Env:      env,
 		HTTPAddr: getenv("GOLD_ADMIN_HTTP_ADDR", ":8094"),
 
 		JWTPrivateKeyFile: os.Getenv("ADMIN_JWT_PRIVATE_KEY_FILE"),
 		JWTPublicKeyFile:  os.Getenv("ADMIN_JWT_PUBLIC_KEY_FILE"),
 
-		MasterSecret: getenv("GOLD_ADMIN_SECRET", "local-admin-secret"),
+		MasterSecret: os.Getenv("GOLD_ADMIN_SECRET"),
 
-		// Downstream base URLs.
+		// Downstream base URLs (non-secret; localhost defaults are fine for local dev).
 		KYCServiceURL:        getenv("KYC_SERVICE_URL", "http://localhost:8083"),
 		AuthServiceURL:       getenv("AUTH_SERVICE_URL", "http://localhost:8082"),
 		OrderServiceURL:      getenv("ORDER_SERVICE_URL", "http://localhost:8085"),
@@ -59,22 +60,61 @@ func FromEnv() (*Config, error) {
 		AuditServiceURL:      getenv("AUDIT_SERVICE_URL", "http://localhost:8090"),
 		ComplianceServiceURL: getenv("COMPLIANCE_SERVICE_URL", "http://localhost:8086"),
 
-		// Downstream admin secrets.
-		KYCAdminSecret:        getenv("KYC_ADMIN_SECRET", "local-kyc-secret"),
-		AuthAdminSecret:       getenv("AUTH_ADMIN_SECRET", "local-auth-secret"),
-		OrderAdminSecret:      getenv("ORDER_ADMIN_SECRET", "local-order-secret"),
-		TreasuryAdminSecret:   getenv("TREASURY_ADMIN_SECRET", "local-treasury-secret"),
-		VaultAdminSecret:      getenv("VAULT_ADMIN_SECRET", "local-vault-secret"),
-		FeeAdminSecret:        getenv("FEE_ADMIN_SECRET", "local-fee-secret"),
-		AuditAdminSecret:      getenv("AUDIT_ADMIN_SECRET", "local-audit-secret"),
-		ComplianceAdminSecret: getenv("COMPLIANCE_ADMIN_SECRET", "local-compliance-secret"),
+		// Downstream admin secrets — read raw; validated / defaulted below.
+		KYCAdminSecret:        os.Getenv("KYC_ADMIN_SECRET"),
+		AuthAdminSecret:       os.Getenv("AUTH_ADMIN_SECRET"),
+		OrderAdminSecret:      os.Getenv("ORDER_ADMIN_SECRET"),
+		TreasuryAdminSecret:   os.Getenv("TREASURY_ADMIN_SECRET"),
+		VaultAdminSecret:      os.Getenv("VAULT_ADMIN_SECRET"),
+		FeeAdminSecret:        os.Getenv("FEE_ADMIN_SECRET"),
+		AuditAdminSecret:      os.Getenv("AUDIT_ADMIN_SECRET"),
+		ComplianceAdminSecret: os.Getenv("COMPLIANCE_ADMIN_SECRET"),
 	}
 
 	c.DatabaseURL = os.Getenv("DATABASE_URL")
 
+	// Secrets that MUST be supplied via env in any non-local environment. Hardcoded
+	// fallbacks here would be a catastrophic auth bypass (the master bootstrap secret
+	// grants full admin control), so we fail closed instead.
+	secretsByEnv := map[string]string{
+		"GOLD_ADMIN_SECRET":       c.MasterSecret,
+		"KYC_ADMIN_SECRET":        c.KYCAdminSecret,
+		"AUTH_ADMIN_SECRET":       c.AuthAdminSecret,
+		"ORDER_ADMIN_SECRET":      c.OrderAdminSecret,
+		"TREASURY_ADMIN_SECRET":   c.TreasuryAdminSecret,
+		"VAULT_ADMIN_SECRET":      c.VaultAdminSecret,
+		"FEE_ADMIN_SECRET":        c.FeeAdminSecret,
+		"AUDIT_ADMIN_SECRET":      c.AuditAdminSecret,
+		"COMPLIANCE_ADMIN_SECRET": c.ComplianceAdminSecret,
+	}
+
 	if c.Env != "local" {
 		if c.DatabaseURL == "" {
 			return nil, fmt.Errorf("missing required env: DATABASE_URL")
+		}
+		for k, v := range secretsByEnv {
+			if v == "" {
+				return nil, fmt.Errorf("missing required env: %s", k)
+			}
+		}
+	} else {
+		// Local dev only: fall back to stable, clearly-non-production placeholders so
+		// the whole stack still comes up with zero configuration.
+		localDefaults := map[string]*string{
+			"local-admin-secret":      &c.MasterSecret,
+			"local-kyc-secret":        &c.KYCAdminSecret,
+			"local-auth-secret":       &c.AuthAdminSecret,
+			"local-order-secret":      &c.OrderAdminSecret,
+			"local-treasury-secret":   &c.TreasuryAdminSecret,
+			"local-vault-secret":      &c.VaultAdminSecret,
+			"local-fee-secret":        &c.FeeAdminSecret,
+			"local-audit-secret":      &c.AuditAdminSecret,
+			"local-compliance-secret": &c.ComplianceAdminSecret,
+		}
+		for def, ptr := range localDefaults {
+			if *ptr == "" {
+				*ptr = def
+			}
 		}
 	}
 

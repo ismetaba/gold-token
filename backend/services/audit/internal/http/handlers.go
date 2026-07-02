@@ -34,7 +34,6 @@ func NewHandlers(entries repo.EntryRepo, adminSecret string, log *zap.Logger) *H
 func (h *Handlers) Routes(env string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 
 	if env == "local" {

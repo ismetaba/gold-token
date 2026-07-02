@@ -175,7 +175,7 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 	}
 
 	// 10. HTTP handlers
-	handlers := comphttp.NewHandlers(compRepo, sc, log)
+	handlers := comphttp.NewHandlers(compRepo, sc, cfg.AdminSecret, log)
 
 	var adminHandlers *comphttp.AdminHandlers
 	if monRepo != nil || ruleRepo != nil {

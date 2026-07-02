@@ -366,6 +366,49 @@ func (s *TxStore) ApplyManualSettlement(ctx context.Context, accountID uuid.UUID
 	return tx.Commit(ctx)
 }
 
+// ErrAlreadyProcessed is returned by ApplySettlementIdempotent when a settlement
+// with the same (reference_id, reference_type) already exists — i.e. the source
+// event was redelivered. Callers should treat it as a successful no-op (ack).
+var ErrAlreadyProcessed = errors.New("treasury: settlement already processed")
+
+// ApplySettlementIdempotent atomically records the settlement AND adjusts the reserve
+// balance in one transaction, keyed on (reference_id, reference_type). The settlement
+// is inserted FIRST: if a row with the same idempotency key already exists the unique
+// constraint rejects it, the transaction rolls back, and ErrAlreadyProcessed is
+// returned WITHOUT crediting/debiting — so a duplicate event delivery can never
+// double-count the reserve.
+func (s *TxStore) ApplySettlementIdempotent(ctx context.Context, accountID uuid.UUID, credit bool, settlement domain.Settlement) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin settlement tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := NewPGSettlementRepo(tx).Create(ctx, settlement); err != nil {
+		if isUniqueViolation(err) {
+			return ErrAlreadyProcessed
+		}
+		return err
+	}
+
+	reserves := NewPGReserveRepo(tx)
+	if credit {
+		err = reserves.Credit(ctx, accountID, settlement.AmountWei)
+	} else {
+		err = reserves.Debit(ctx, accountID, settlement.AmountWei)
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// isUniqueViolation reports whether err is a PostgreSQL unique-constraint violation.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 // parseBigInt parses a base-10 integer string, returning an error rather than

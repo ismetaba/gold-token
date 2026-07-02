@@ -57,12 +57,13 @@ func (f *fakeBarRepo) ListAllocations(context.Context, uuid.UUID) ([]domain.BarA
 type fakeMC struct {
 	approvals uint8
 	executeErr error
+	status     chain.ProposalStatus
 }
 
 func (f *fakeMC) ProposeMint(context.Context, chain.MintRequest) (string, error) { return "0xpropose", nil }
 func (f *fakeMC) ExecuteMint(context.Context, [32]byte) (string, error)          { return "0xexec", f.executeErr }
 func (f *fakeMC) ProposalStatus(context.Context, [32]byte) (chain.ProposalStatus, error) {
-	return chain.ProposalNone, nil
+	return f.status, nil
 }
 func (f *fakeMC) ApprovalCount(context.Context, [32]byte) (uint8, error) { return f.approvals, nil }
 
@@ -140,6 +141,32 @@ func TestExecutingSuccessStagesExecutedEvent(t *testing.T) {
 	}
 	if s.State != domain.StateCompleted {
 		t.Fatalf("state=%s want completed", s.State)
+	}
+	if sagas.lastEvent == nil || sagas.lastEvent.Subject != events.SubjMintExecuted {
+		t.Fatalf("expected staged %s event, got %+v", events.SubjMintExecuted, sagas.lastEvent)
+	}
+}
+
+// Crash-recovery: if the proposal is already executed on-chain (a prior execute tx
+// landed but the completion commit was lost), re-running the step must reconcile to
+// completed — NOT compensate. Compensating would release the physical bar backing and
+// refund the user for tokens that were actually minted (the CRITICAL double-refund bug).
+func TestExecutingAlreadyExecutedReconcilesInsteadOfCompensating(t *testing.T) {
+	sagas := &fakeSagaRepo{}
+	bars := &fakeBarRepo{}
+	// status=Executed, and a would-be revert on re-execute: the pre-check must short-circuit.
+	mc := &fakeMC{status: chain.ProposalExecuted, executeErr: chain.ErrTxReverted}
+	o := NewOrchestrator(sagas, bars, mc, zap.NewNop(), Config{ApprovalThreshold: 3})
+
+	s := newSaga(domain.StateExecuting)
+	if err := o.step(context.Background(), s); err != nil {
+		t.Fatalf("step: %v", err)
+	}
+	if s.State != domain.StateCompleted {
+		t.Fatalf("state=%s want completed (must reconcile, not compensate)", s.State)
+	}
+	if bars.released {
+		t.Fatal("bars must NOT be released when the mint already executed on-chain")
 	}
 	if sagas.lastEvent == nil || sagas.lastEvent.Subject != events.SubjMintExecuted {
 		t.Fatalf("expected staged %s event, got %+v", events.SubjMintExecuted, sagas.lastEvent)

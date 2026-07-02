@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"sync"
 
 	"github.com/ethereum/go-ethereum"
 	gethcommon "github.com/ethereum/go-ethereum/common"
@@ -31,6 +32,12 @@ type TxSigner struct {
 	address Address
 	chainID *big.Int
 	rpc     *ethclient.Client
+
+	// mu serialises the fetch-nonce → sign window. PendingNonceAt only reflects
+	// txs already broadcast, so two concurrent Sign calls would otherwise obtain
+	// the SAME nonce and one tx would be dropped/replaced. One in-flight signing
+	// at a time per signer address prevents the collision.
+	mu sync.Mutex
 }
 
 // NewTxSigner wraps inner and connects to rpc for nonce / gas estimation.
@@ -50,6 +57,13 @@ func (s *TxSigner) Address() Address { return s.address }
 // Sign builds and signs an EIP-1559 transaction to `to` with `calldata` and
 // `value`. Returns an RLP-encoded signed transaction ready for broadcast.
 func (s *TxSigner) Sign(ctx context.Context, to Address, calldata []byte, value *big.Int) (SignedTx, error) {
+	// Serialise nonce acquisition + signing so concurrent callers cannot pick the
+	// same pending nonce. NOTE: the caller must broadcast the returned tx before the
+	// next PendingNonceAt reflects it; the mint saga advances one step per tick so
+	// signing is effectively serial, and this guard hardens the invariant.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	from := gethcommon.Address(s.address)
 	toAddr := gethcommon.Address(to)
 
