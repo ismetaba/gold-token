@@ -4,6 +4,8 @@ package config
 import (
 	"fmt"
 	"os"
+
+	"github.com/ismetaba/gold-token/backend/pkg/secrets"
 )
 
 // Config holds runtime configuration for complianced.
@@ -14,6 +16,10 @@ type Config struct {
 	DatabaseURL string
 	NATSURL     string
 	NATSStream  string
+
+	// AdminSecret gates the screen/status and monitoring/rules endpoints via the
+	// X-Admin-Secret header. Required (non-empty) in every non-local environment.
+	AdminSecret string
 
 	// SanctionsListFile is an optional path to a custom JSON sanctions list.
 	// When empty, the embedded default list is used.
@@ -50,16 +56,25 @@ func FromEnv() (*Config, error) {
 
 	c.DatabaseURL = os.Getenv("DATABASE_URL")
 	c.NATSURL = os.Getenv("NATS_URL")
+	c.AdminSecret = os.Getenv("COMPLIANCE_ADMIN_SECRET")
 
 	if c.Env != "local" {
 		for k, v := range map[string]string{
-			"DATABASE_URL": c.DatabaseURL,
-			"NATS_URL":     c.NATSURL,
+			"DATABASE_URL":            c.DatabaseURL,
+			"NATS_URL":                c.NATSURL,
+			"COMPLIANCE_ADMIN_SECRET": c.AdminSecret,
 		} {
 			if v == "" {
 				return nil, fmt.Errorf("missing required env: %s", k)
 			}
 		}
+	} else if c.AdminSecret == "" {
+		// Generate a random admin secret for local dev so it is never a static default.
+		s, err := secrets.RandomHex(32)
+		if err != nil {
+			return nil, err
+		}
+		c.AdminSecret = s
 	}
 	return c, nil
 }

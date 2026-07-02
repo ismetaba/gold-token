@@ -23,10 +23,14 @@ interface IComplianceRegistry {
         bool sanctioned;            // OFAC/EU/UN match
     }
 
-    /// @notice Does this transfer satisfy compliance rules?
-    /// @dev Called by GoldToken in the _update hook.
-    ///      Callers skip this when from=0 (mint) or to=0 (burn).
+    /// @notice Does this transfer satisfy compliance rules? (pure view; does not consume approvals)
+    /// @dev Callers skip this when from=0 (mint) or to=0 (burn).
     function canTransfer(address from, address to, uint256 amount) external view returns (bool);
+
+    /// @notice State-changing transfer gate called by the token in _update; consumes a
+    ///         single-use Travel Rule approval when the above-threshold transfer clears.
+    /// @dev Restricted to the registered token (see setToken).
+    function screenTransfer(address from, address to, uint256 amount) external returns (bool);
 
     /// @notice May this address receive a mint? (KYC + jurisdiction check)
     function canMint(address to, uint256 amount, bytes2 jurisdiction) external view returns (bool);
@@ -68,6 +72,11 @@ interface IComplianceRegistry {
     // Jurisdiction restrictions (e.g. block US residents)
     function setJurisdictionBlocked(bytes2 jurisdiction, bool blocked) external;
     function isJurisdictionBlocked(bytes2 jurisdiction) external view returns (bool);
+    function isJurisdictionBlockedFor(address wallet) external view returns (bool);
+
+    // Token registration — TREASURY_ROLE only (authorises screenTransfer consumption)
+    function setToken(address newToken) external;
+    function token() external view returns (address);
 
     // Travel Rule threshold (amount in wei; 1 gram = 1e18)
     function setTravelRuleThreshold(uint256 thresholdWei) external;
@@ -85,4 +94,6 @@ interface IComplianceRegistry {
         bytes32 ivms101Hash
     );
     event TravelRuleThresholdUpdated(uint256 newThreshold);
+    event TravelRuleConsumed(address indexed from, address indexed to, uint256 amount);
+    event TokenUpdated(address indexed oldToken, address indexed newToken);
 }

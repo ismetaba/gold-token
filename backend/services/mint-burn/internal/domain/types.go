@@ -17,6 +17,16 @@ const (
 	ArenaEU Arena = "EU" // Liechtenstein/MiCA için şemsiye
 )
 
+// Valid reports whether a is one of the supported jurisdiction codes.
+func (a Arena) Valid() bool {
+	switch a {
+	case ArenaTR, ArenaCH, ArenaAE, ArenaEU:
+		return true
+	default:
+		return false
+	}
+}
+
 // MintRequest is the input to the mint saga.
 // Corresponds to the on-chain IMintController.MintRequest struct.
 type MintRequest struct {

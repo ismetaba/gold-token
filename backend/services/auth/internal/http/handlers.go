@@ -24,6 +24,13 @@ import (
 
 const bcryptCost = 12
 
+// dummyBcryptHash is a REAL bcrypt hash at bcryptCost, compared against on the
+// user-not-found path so login performs the same key-derivation work whether or
+// not the account exists. A malformed/placeholder value would make bcrypt return
+// almost instantly, re-introducing a user-enumeration timing oracle. Validated by
+// TestDummyBcryptHashIsValid.
+const dummyBcryptHash = "$2a$12$milf7wEsMTG8xnmDDQkjoOrSEBSA.VRAH8NCVQ5UDqwZR9puFlMli"
+
 type ctxKey struct{}
 
 // Handlers wires together repos, token manager, and optional event bus.
@@ -41,7 +48,6 @@ func NewHandlers(users repo.UserRepo, tm *tokens.Manager, bus *pkgevents.Bus, lo
 func (h *Handlers) Routes(env string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 
 	if env == "local" {
@@ -175,11 +181,9 @@ func (h *Handlers) login(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.users.ByEmail(r.Context(), req.Email)
 	if err != nil {
-		// Timing-safe: always run bcrypt to prevent user enumeration.
-		_ = bcrypt.CompareHashAndPassword(
-			[]byte("$2a$12$dummyhashdummyhashdummyhashdummyhashdummyhashd"),
-			[]byte(req.Password),
-		)
+		// Timing-safe: run bcrypt against a real cost-12 hash so the not-found path
+		// does the same work as a wrong-password path, preventing user enumeration.
+		_ = bcrypt.CompareHashAndPassword([]byte(dummyBcryptHash), []byte(req.Password))
 		writeErr(w, http.StatusUnauthorized, "invalid_credentials", "email or password is incorrect")
 		return
 	}

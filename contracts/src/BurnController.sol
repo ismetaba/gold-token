@@ -53,10 +53,15 @@ contract BurnController is
         uint256 upgradeDelay;
         address scheduledImpl;
         uint256 scheduledAt;
+        // Eligibility snapshot captured at schedule time (see scheduleUpgrade).
+        uint256 scheduledEligibleAt;
     }
 
     /// @dev Default upgrade timelock: 48 hours.
     uint256 private constant DEFAULT_UPGRADE_DELAY = 48 hours;
+
+    /// @dev Floor for the upgrade timelock so it can never be reduced to an unsafe value.
+    uint256 private constant MIN_UPGRADE_DELAY = 24 hours;
 
     event UpgradeScheduled(address indexed newImpl, uint256 eligibleAt);
     event UpgradeCancelled(address indexed cancelledImpl);
@@ -251,7 +256,9 @@ contract BurnController is
         BurnStorage storage $ = _s();
         $.scheduledImpl = newImpl;
         $.scheduledAt = block.timestamp;
-        emit UpgradeScheduled(newImpl, block.timestamp + $.upgradeDelay);
+        uint256 eligibleAt = block.timestamp + $.upgradeDelay;
+        $.scheduledEligibleAt = eligibleAt;
+        emit UpgradeScheduled(newImpl, eligibleAt);
     }
 
     function cancelScheduledUpgrade() external onlyRole(Roles.UPGRADER_ROLE) {
@@ -259,10 +266,14 @@ contract BurnController is
         address cancelled = $.scheduledImpl;
         $.scheduledImpl = address(0);
         $.scheduledAt = 0;
+        $.scheduledEligibleAt = 0;
         emit UpgradeCancelled(cancelled);
     }
 
     function setUpgradeDelay(uint256 newDelay) external onlyRole(Roles.TREASURY_ROLE) {
+        if (newDelay < MIN_UPGRADE_DELAY) {
+            revert Errors.UpgradeDelayBelowMinimum(newDelay, MIN_UPGRADE_DELAY);
+        }
         _s().upgradeDelay = newDelay;
         emit UpgradeDelayUpdated(newDelay);
     }
@@ -284,12 +295,12 @@ contract BurnController is
         if ($.scheduledImpl != newImpl || $.scheduledAt == 0) {
             revert Errors.UpgradeNotTimelocked();
         }
-        uint256 eligibleAt = $.scheduledAt + $.upgradeDelay;
-        if (block.timestamp < eligibleAt) {
-            revert Errors.UpgradeTimelockActive(eligibleAt);
+        if (block.timestamp < $.scheduledEligibleAt) {
+            revert Errors.UpgradeTimelockActive($.scheduledEligibleAt);
         }
         $.scheduledImpl = address(0);
         $.scheduledAt = 0;
+        $.scheduledEligibleAt = 0;
     }
 }
 

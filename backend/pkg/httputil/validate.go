@@ -15,15 +15,19 @@ func ValidateEthAddress(addr string) bool {
 }
 
 // ValidateName checks that a name field is between minLen and maxLen runes
-// and contains only printable characters (no control chars).
+// and contains only printable characters (rejects C0 controls, DEL, and the
+// C1 control range 0x80–0x9F).
 func ValidateName(s string, minLen, maxLen int) bool {
+	if !utf8.ValidString(s) {
+		return false
+	}
 	n := utf8.RuneCountInString(s)
 	if n < minLen || n > maxLen {
 		return false
 	}
 	for _, r := range s {
-		if r < 0x20 { // control characters
-			return false
+		if r < 0x20 || r == 0x7F || (r >= 0x80 && r <= 0x9F) {
+			return false // C0 controls, DEL, and C1 controls
 		}
 	}
 	return true

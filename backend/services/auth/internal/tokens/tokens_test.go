@@ -10,7 +10,7 @@ import (
 func newTestManager(t *testing.T, accessTTL time.Duration) *Manager {
 	t.Helper()
 	// Empty key file paths => ephemeral in-process RSA key (local mode).
-	m, err := NewManager("", "", accessTTL, time.Hour)
+	m, err := NewManager("", "", "local", accessTTL, time.Hour)
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}

@@ -121,7 +121,13 @@ abstract contract BaseTest is Test {
         vm.startPrank(treasury);
         token.setMintController(address(minter));
         token.setBurnController(address(burner));
+        // Register the token so the registry can consume Travel Rule approvals in screenTransfer.
+        compliance.setToken(address(token));
         vm.stopPrank();
+
+        // Treasury is the mint fee recipient; it must satisfy the same compliance gate as
+        // any mint recipient (fee tokens are minted to it), so give it a valid KYC profile.
+        _setKyc(treasury, TR);
     }
 
     // ──────────────────────────────────────────────────────────────────────

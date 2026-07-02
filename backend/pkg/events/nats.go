@@ -160,7 +160,7 @@ func (b *Bus) Subscribe(
 		return fmt.Errorf("consumer: %w", err)
 	}
 
-	_, err = cons.Consume(func(msg jetstream.Msg) {
+	cc, err := cons.Consume(func(msg jetstream.Msg) {
 		err := handler(ctx, msg.Data())
 		if err == nil {
 			_ = msg.Ack()
@@ -195,6 +195,24 @@ func (b *Bus) Subscribe(
 			zap.Error(err),
 		)
 		_ = msg.Nak()
-	})
-	return err
+	}, jetstream.ConsumeErrHandler(func(_ jetstream.ConsumeContext, cErr error) {
+		// Surface async consumer errors (heartbeat loss, pull failures, ...) that would
+		// otherwise be silently swallowed and hide a stalled consumer.
+		b.log.Error("jetstream consume error",
+			zap.String("subject", subject),
+			zap.String("durable", durable),
+			zap.Error(cErr),
+		)
+	}))
+	if err != nil {
+		return err
+	}
+
+	// Stop consuming when the parent context is cancelled so the consumer shuts down
+	// cleanly on service exit instead of leaking.
+	go func() {
+		<-ctx.Done()
+		cc.Stop()
+	}()
+	return nil
 }

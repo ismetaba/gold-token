@@ -31,6 +31,15 @@ import { BurnController } from "../src/BurnController.sol";
 ///           GOLD_TOKEN_PROXY / COMPLIANCE_REGISTRY_PROXY /
 ///           MINT_CONTROLLER_PROXY / BURN_CONTROLLER_PROXY  (or the registry)
 ///         For the apply phase, the matching *_NEW_IMPL address from phase 1.
+///
+///         ⚠ AUTHORITY: schedule/apply require UPGRADER_ROLE. This EOA-broadcast flow
+///         only works when DEPLOYER_PRIVATE_KEY *holds* UPGRADER_ROLE — i.e. a dev/test
+///         setup where the deployer is also the treasury/upgrader. In the production
+///         topology UPGRADER_ROLE is held by a separate TimelockController / Gnosis Safe
+///         (see Deploy.s.sol's UPGRADER_ADDRESS), which this EOA script cannot drive.
+///         For that case, deploy the new implementation permissionlessly and submit the
+///         scheduleUpgrade(newImpl) / upgradeToAndCall(newImpl, "") calldata through the
+///         Safe/timelock instead of broadcasting here.
 contract Upgrade is Script {
     using stdJson for string;
 

@@ -75,12 +75,32 @@ CREATE TABLE audit.entries_default PARTITION OF audit.entries DEFAULT;
 -- The application role (assumed to be the DATABASE_URL user) loses UPDATE/DELETE.
 REVOKE UPDATE, DELETE ON audit.entries FROM PUBLIC;
 
+-- Defense-in-depth: a REVOKE does NOT bind the table owner, and services frequently
+-- connect as the owner of their schema. Enforce append-only with a trigger that raises
+-- on any UPDATE/DELETE for EVERY role, owner included. Row-level triggers on a
+-- partitioned table cascade to all current and future partitions (PostgreSQL 13+).
+-- (Operators should additionally run services under a dedicated non-owner role.)
+CREATE OR REPLACE FUNCTION audit.deny_mutation() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'audit.entries is append-only: % is not permitted', TG_OP;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER audit_entries_no_update
+    BEFORE UPDATE ON audit.entries
+    FOR EACH ROW EXECUTE FUNCTION audit.deny_mutation();
+
+CREATE TRIGGER audit_entries_no_delete
+    BEFORE DELETE ON audit.entries
+    FOR EACH ROW EXECUTE FUNCTION audit.deny_mutation();
+
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
 
 DROP TABLE IF EXISTS audit.entries CASCADE;
+DROP FUNCTION IF EXISTS audit.deny_mutation() CASCADE;
 DROP SCHEMA IF EXISTS audit CASCADE;
 
 -- +goose StatementEnd

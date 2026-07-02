@@ -29,7 +29,6 @@ func NewHandlers(sagas repo.SagaRepo, log *zap.Logger) *Handlers {
 func (h *Handlers) Routes(env string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 
 	if env == "local" {

@@ -11,10 +11,16 @@ import { Errors } from "./libraries/Errors.sol";
 import { Roles } from "./libraries/Roles.sol";
 
 /// @title ReserveOracle
-/// @notice Immutable (append-only) log of monthly independent audit attestations.
-/// @dev This contract is NOT UUPS — it is an immutable deploy. The immutability of
-///      the audit history is the cornerstone of reserve trust. For bug fixes or role
-///      changes a new version is deployed and MintController.setOracle is updated.
+/// @notice Append-only log of monthly independent audit attestations.
+/// @dev This contract is NOT UUPS. The ATTESTATION HISTORY is genuinely immutable:
+///      attestations are only ever appended, never overwritten or deleted, and that
+///      history is the cornerstone of reserve trust. The GOVERNANCE PARAMETERS that
+///      gate acceptance of new attestations — the auditor set, signature threshold,
+///      max growth cap, and minimum attestation interval — remain mutable by
+///      TREASURY_ROLE (see authorizeAuditor/deauthorizeAuditor, setSignatureThreshold,
+///      setMaxGrowthBps, setMinAttestationInterval). To migrate to a materially
+///      different oracle, deploy a new version and point the consumer at it via
+///      MintController.setOracle.
 contract ReserveOracle is AccessControl, EIP712, IReserveOracle {
     bytes32 private constant ATTESTATION_TYPEHASH = keccak256(
         "Attestation(uint64 timestamp,uint64 asOf,uint256 totalGrams,bytes32 merkleRoot,bytes32 ipfsCid,address auditor)"
@@ -35,11 +41,26 @@ contract ReserveOracle is AccessControl, EIP712, IReserveOracle {
     ///      in basis points. 10_000 bps = +100%. Default 5_000 bps (+50%).
     uint256 private _maxGrowthBps;
 
+    /// @dev Minimum wall-clock spacing (seconds) between consecutive attestations. This
+    ///      prevents the per-step growth cap from being compounded by chaining many
+    ///      attestations within a single block/transaction (each incrementing the
+    ///      supplied timestamp by 1). Because a.timestamp is bounded to block.timestamp+1h,
+    ///      any interval > 1h makes same-block batching infeasible.
+    uint256 private _minAttestationInterval;
+
     /// @dev Default signature threshold when at least this many auditors are configured.
     uint256 private constant DEFAULT_SIGNATURE_THRESHOLD = 2;
 
     /// @dev Default max growth between attestations: +50%.
     uint256 private constant DEFAULT_MAX_GROWTH_BPS = 5_000;
+
+    /// @dev Default minimum spacing between attestations: 1 hour (anti-batching floor).
+    ///      Operators should raise this toward the real audit cadence (e.g. weeks).
+    uint256 private constant DEFAULT_MIN_ATTESTATION_INTERVAL = 1 hours;
+
+    /// @dev Upper bound for the growth cap so an extreme value cannot cause prevGrams*bps
+    ///      to overflow/DoS publish or make the cap meaningless.
+    uint256 private constant MAX_GROWTH_BPS_CAP = 100_000; // +1000%
 
     constructor(address treasury, address[] memory initialAuditors)
         EIP712("GOLD ReserveOracle", "1")
@@ -67,6 +88,9 @@ contract ReserveOracle is AccessControl, EIP712, IReserveOracle {
 
         _maxGrowthBps = DEFAULT_MAX_GROWTH_BPS;
         emit MaxGrowthBpsUpdated(DEFAULT_MAX_GROWTH_BPS);
+
+        _minAttestationInterval = DEFAULT_MIN_ATTESTATION_INTERVAL;
+        emit MinAttestationIntervalUpdated(DEFAULT_MIN_ATTESTATION_INTERVAL);
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -125,6 +149,14 @@ contract ReserveOracle is AccessControl, EIP712, IReserveOracle {
             Attestation storage prev = _attestations[n - 1];
             if (a.timestamp <= prev.timestamp || a.asOf <= prev.asOf) {
                 revert Errors.AttestationMonotonicityViolated(prev.timestamp, a.timestamp);
+            }
+            // Anti-batching: enforce a minimum wall-clock spacing so the per-step growth
+            // cap cannot be compounded by publishing many attestations in one block.
+            if (
+                _minAttestationInterval > 0
+                    && a.timestamp < prev.timestamp + _minAttestationInterval
+            ) {
+                revert Errors.AttestationTooSoon(prev.timestamp, a.timestamp, _minAttestationInterval);
             }
         }
 
@@ -243,9 +275,19 @@ contract ReserveOracle is AccessControl, EIP712, IReserveOracle {
     }
 
     /// @notice Set the max allowed growth in totalGrams between consecutive attestations (bps).
+    /// @dev Bounded by MAX_GROWTH_BPS_CAP so an extreme value cannot DoS publish via overflow.
     function setMaxGrowthBps(uint256 newMaxGrowthBps) external onlyRole(Roles.TREASURY_ROLE) {
+        if (newMaxGrowthBps > MAX_GROWTH_BPS_CAP) {
+            revert Errors.InvalidGrowthCap(newMaxGrowthBps, MAX_GROWTH_BPS_CAP);
+        }
         _maxGrowthBps = newMaxGrowthBps;
         emit MaxGrowthBpsUpdated(newMaxGrowthBps);
+    }
+
+    /// @notice Set the minimum wall-clock spacing (seconds) between attestations.
+    function setMinAttestationInterval(uint256 newInterval) external onlyRole(Roles.TREASURY_ROLE) {
+        _minAttestationInterval = newInterval;
+        emit MinAttestationIntervalUpdated(newInterval);
     }
 
     function signatureThreshold() external view returns (uint256) {
@@ -258,6 +300,10 @@ contract ReserveOracle is AccessControl, EIP712, IReserveOracle {
 
     function maxGrowthBps() external view returns (uint256) {
         return _maxGrowthBps;
+    }
+
+    function minAttestationInterval() external view returns (uint256) {
+        return _minAttestationInterval;
     }
 
     // ──────────────────────────────────────────────────────────────────────

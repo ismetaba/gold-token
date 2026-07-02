@@ -60,7 +60,6 @@ func NewHandlers(
 func (h *Handlers) Routes(env string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 
 	// CORS: restrictive in production, permissive in local dev.

@@ -33,7 +33,6 @@ func NewHandlers(jobs repo.ReportJobRepo, queries repo.QueryRepo, adminSecret st
 func (h *Handlers) Routes(env string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 
 	if env == "local" {

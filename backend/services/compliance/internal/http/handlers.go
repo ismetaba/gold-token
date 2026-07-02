@@ -21,19 +21,19 @@ import (
 
 // Handlers wires together the compliance repo and screener.
 type Handlers struct {
-	repo     repo.ComplianceRepo
-	screener screener.Screener
-	log      *zap.Logger
+	repo        repo.ComplianceRepo
+	screener    screener.Screener
+	adminSecret string
+	log         *zap.Logger
 }
 
-func NewHandlers(r repo.ComplianceRepo, sc screener.Screener, log *zap.Logger) *Handlers {
-	return &Handlers{repo: r, screener: sc, log: log}
+func NewHandlers(r repo.ComplianceRepo, sc screener.Screener, adminSecret string, log *zap.Logger) *Handlers {
+	return &Handlers{repo: r, screener: sc, adminSecret: adminSecret, log: log}
 }
 
 func (h *Handlers) Routes(env string, admin *AdminHandlers) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 
 	if env == "local" {
@@ -47,16 +47,31 @@ func (h *Handlers) Routes(env string, admin *AdminHandlers) chi.Router {
 
 	r.Get("/health", h.health)
 
+	// Screening mutates a user's compliance state and status exposes it; both are
+	// privileged (service/admin) operations, not public. Gate them behind the admin
+	// secret so an unauthenticated caller cannot overwrite or read arbitrary users'
+	// compliance state.
 	r.Route("/compliance", func(r chi.Router) {
-		r.Post("/screen", h.screen)
-		r.Get("/status/{userId}", h.status)
+		r.With(h.requireAdmin).Post("/screen", h.screen)
+		r.With(h.requireAdmin).Get("/status/{userId}", h.status)
 	})
 
 	if admin != nil {
-		admin.MountAdminRoutes(r)
+		admin.MountAdminRoutes(r, h.requireAdmin)
 	}
 
 	return r
+}
+
+// requireAdmin enforces the X-Admin-Secret header (constant-time, fail-closed).
+func (h *Handlers) requireAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !httputil.ValidAdminSecret(h.adminSecret, r.Header.Get("X-Admin-Secret")) {
+			writeErr(w, http.StatusForbidden, "forbidden", "valid X-Admin-Secret header required")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

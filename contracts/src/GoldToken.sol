@@ -44,10 +44,16 @@ contract GoldToken is
         // Set only for the duration of a single operatorBurnFrom() call so that the
         // compliance clawback can execute the burn even while the token is paused.
         bool operatorBurnInProgress;
+        // Eligibility snapshot for the scheduled upgrade, captured at schedule time so a
+        // later reduction of upgradeDelay cannot retroactively shorten the window.
+        uint256 scheduledEligibleAt;
     }
 
     /// @dev Default upgrade timelock: 48 hours.
     uint256 private constant DEFAULT_UPGRADE_DELAY = 48 hours;
+
+    /// @dev Floor for the upgrade timelock so it can never be reduced to an unsafe value.
+    uint256 private constant MIN_UPGRADE_DELAY = 24 hours;
 
     // keccak256(abi.encode(uint256(keccak256("gold.token.storage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant STORAGE_LOCATION =
@@ -112,9 +118,11 @@ contract GoldToken is
         }
 
         if (from != address(0) && to != address(0)) {
-            // Transfer: compliance gate
+            // Transfer: compliance gate. screenTransfer applies the same rules as the
+            // canTransfer view but additionally consumes any single-use Travel Rule
+            // approval so it cannot be replayed by a later identical transfer.
             IComplianceRegistry reg = IComplianceRegistry($.complianceRegistry);
-            if (!reg.canTransfer(from, to, value)) {
+            if (!reg.screenTransfer(from, to, value)) {
                 // Return a specific error describing which rule was triggered
                 if (reg.isFrozen(from)) revert Errors.WalletFrozen(from);
                 if (reg.isFrozen(to)) revert Errors.WalletFrozen(to);
@@ -122,6 +130,12 @@ contract GoldToken is
                 if (reg.isSanctioned(to)) revert Errors.SanctionsHit(to);
                 if (!reg.isKycValid(from)) revert Errors.KycRequired(from);
                 if (!reg.isKycValid(to)) revert Errors.KycRequired(to);
+                if (reg.isJurisdictionBlockedFor(from)) {
+                    revert Errors.JurisdictionBlocked(reg.getProfile(from).jurisdiction);
+                }
+                if (reg.isJurisdictionBlockedFor(to)) {
+                    revert Errors.JurisdictionBlocked(reg.getProfile(to).jurisdiction);
+                }
                 if (reg.travelRuleRequired(from, to, value)) {
                     revert Errors.TravelRuleRequired(from, to, value);
                 }
@@ -247,7 +261,10 @@ contract GoldToken is
         GoldTokenStorage storage $ = _getStorage();
         $.scheduledImpl = newImpl;
         $.scheduledAt = block.timestamp;
-        emit UpgradeScheduled(newImpl, block.timestamp + $.upgradeDelay);
+        // Snapshot the eligibility time NOW so a later setUpgradeDelay cannot shorten it.
+        uint256 eligibleAt = block.timestamp + $.upgradeDelay;
+        $.scheduledEligibleAt = eligibleAt;
+        emit UpgradeScheduled(newImpl, eligibleAt);
     }
 
     /// @notice Cancel a previously scheduled upgrade. UPGRADER_ROLE only.
@@ -256,11 +273,18 @@ contract GoldToken is
         address cancelled = $.scheduledImpl;
         $.scheduledImpl = address(0);
         $.scheduledAt = 0;
+        $.scheduledEligibleAt = 0;
         emit UpgradeCancelled(cancelled);
     }
 
     /// @notice Update the upgrade timelock delay (seconds). TREASURY_ROLE only.
+    /// @dev Enforces a MIN_UPGRADE_DELAY floor so the timelock cannot be neutralised.
+    ///      Only affects upgrades scheduled after this call; already-scheduled upgrades
+    ///      keep the eligibility snapshot taken at schedule time.
     function setUpgradeDelay(uint256 newDelay) external onlyRole(Roles.TREASURY_ROLE) {
+        if (newDelay < MIN_UPGRADE_DELAY) {
+            revert Errors.UpgradeDelayBelowMinimum(newDelay, MIN_UPGRADE_DELAY);
+        }
         _getStorage().upgradeDelay = newDelay;
         emit UpgradeDelayUpdated(newDelay);
     }
@@ -288,13 +312,15 @@ contract GoldToken is
         if ($.scheduledImpl != newImpl || $.scheduledAt == 0) {
             revert Errors.UpgradeNotTimelocked();
         }
-        uint256 eligibleAt = $.scheduledAt + $.upgradeDelay;
-        if (block.timestamp < eligibleAt) {
-            revert Errors.UpgradeTimelockActive(eligibleAt);
+        // Eligibility is read from the snapshot taken at schedule time, so a subsequent
+        // reduction of upgradeDelay cannot shorten an already-scheduled window.
+        if (block.timestamp < $.scheduledEligibleAt) {
+            revert Errors.UpgradeTimelockActive($.scheduledEligibleAt);
         }
         // Consume the schedule so it cannot be replayed.
         $.scheduledImpl = address(0);
         $.scheduledAt = 0;
+        $.scheduledEligibleAt = 0;
     }
 
     // ──────────────────────────────────────────────────────────────────────

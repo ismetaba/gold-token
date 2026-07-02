@@ -130,9 +130,12 @@ func (s *SoftHSMSigner) Sign(_ context.Context, digest [32]byte) ([65]byte, erro
 	}
 
 	// Determine the recovery byte v by trying 0 and 1.
+	// FillBytes right-aligns into fixed 32-byte fields; big.Int.Bytes() is
+	// minimal-length and left-aligned via copy would corrupt any r/s with
+	// leading zero bytes (~1/256 of signatures), breaking recovery.
 	var sig65 [65]byte
-	copy(sig65[:32], r.Bytes())
-	copy(sig65[32:64], bigS.Bytes())
+	r.FillBytes(sig65[0:32])
+	bigS.FillBytes(sig65[32:64])
 
 	for v := byte(0); v <= 1; v++ {
 		sig65[64] = v

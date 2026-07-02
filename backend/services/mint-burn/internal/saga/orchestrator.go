@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
@@ -201,8 +202,30 @@ func (o *Orchestrator) onAwaitingApprovals(ctx context.Context, s *domain.Saga) 
 
 func (o *Orchestrator) onExecuting(ctx context.Context, s *domain.Saga) error {
 	pid := chain.AllocationIDFromUUID(s.Context.MintReq.AllocationID)
+
+	// Crash-recovery / idempotency: if the proposal is ALREADY executed on-chain
+	// (a prior execute tx succeeded but the completion commit was lost, leaving the
+	// saga stuck in 'executing'), re-executing would revert. Reconcile to completed
+	// instead of re-sending — and never fall through to compensate(), which would
+	// release the bar allocation and refund the user for tokens that really exist.
+	if status, sErr := o.mc.ProposalStatus(ctx, pid); sErr == nil && status == chain.ProposalExecuted {
+		o.log.Warn("execute step re-entered on an already-executed proposal; reconciling to completed",
+			zap.String("saga_id", s.ID.String()))
+		return o.finishExecuted(ctx, s)
+	}
+
 	txHash, err := o.mc.ExecuteMint(ctx, pid)
 	if err != nil {
+		// The execute may have reverted precisely BECAUSE the proposal was already
+		// executed on a prior attempt (ProposalNotFound at MintController.executeMint).
+		// That revert is indistinguishable from a genuine rejection at this call site,
+		// so confirm on-chain status before compensating. Only release bars / refund
+		// when the chain confirms the mint did NOT happen.
+		if status, sErr := o.mc.ProposalStatus(ctx, pid); sErr == nil && status == chain.ProposalExecuted {
+			o.log.Warn("executeMint reverted but proposal is executed on-chain; reconciling to completed",
+				zap.String("saga_id", s.ID.String()), zap.Error(err))
+			return o.finishExecuted(ctx, s)
+		}
 		// Reserve invariant violations get a dedicated failure state.
 		if errors.Is(err, chain.ErrReserveInvariant) {
 			return o.compensate(ctx, s, domain.StateFailedReserveInvariant, err, "reserve_invariant")
@@ -210,9 +233,15 @@ func (o *Orchestrator) onExecuting(ctx context.Context, s *domain.Saga) error {
 		return o.compensate(ctx, s, domain.StateFailed, err, "execute_failed")
 	}
 	s.Context.ExecuteTxHash = txHash
+	return o.finishExecuted(ctx, s)
+}
 
-	// Atomically mark completed and stage the executed event in the outbox, so
-	// the event cannot be lost once completion is committed.
+// finishExecuted atomically marks the saga completed and stages the executed event
+// in the outbox, so the event cannot be lost once completion is committed.
+func (o *Orchestrator) finishExecuted(ctx context.Context, s *domain.Saga) error {
+	if s.State == domain.StateCompleted {
+		return nil
+	}
 	if err := domain.MintStateTransition(s.State, domain.StateCompleted); err != nil {
 		return err
 	}
@@ -375,11 +404,13 @@ func jurisdictionBytes(a domain.Arena) [2]byte {
 }
 
 func hashSerial(serial string) [32]byte {
-	// TODO(chain): keccak256(abi.encode(serial, weight, purity, vault, lbmaId))
-	// Skeleton: direkt byte kopyası (32-byte truncate/pad). Production'da tam ABI hash.
-	var out [32]byte
-	copy(out[:], []byte(serial))
-	return out
+	// keccak256 of the serial so that distinct or >32-byte serials never collide (a raw
+	// byte copy truncates/pads and maps different serials to the same 32-byte leaf, which
+	// would corrupt the on-chain reserve/bar proof).
+	// NOTE: the full production leaf should hash the complete bar tuple
+	// keccak256(abi.encode(serial, weight, purity, vault, lbmaId)); this hashes the serial
+	// which is already collision-free and never truncates.
+	return crypto.Keccak256Hash([]byte(serial))
 }
 
 func ptr[T any](v T) *T { return &v }

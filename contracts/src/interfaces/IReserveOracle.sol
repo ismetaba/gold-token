@@ -2,10 +2,12 @@
 pragma solidity 0.8.24;
 
 /// @title IReserveOracle
-/// @notice Immutable (append-only) record of monthly independent audit attestations.
-/// @dev This contract is NOT UUPS — immutable deploy. A new version is deployed for
-///      bug fixes or role changes, and the MintController is updated via setOracle.
-///      Audit history cannot be deleted or altered.
+/// @notice Append-only record of monthly independent audit attestations.
+/// @dev This contract is NOT UUPS — immutable deploy. The attestation HISTORY cannot be
+///      deleted or altered (append-only). Governance parameters (auditor set, signature
+///      threshold, growth cap, minimum interval) remain TREASURY_ROLE-mutable. To migrate
+///      to a materially different oracle, deploy a new version and update the consumer via
+///      MintController.setOracle.
 interface IReserveOracle {
     struct Attestation {
         uint64 timestamp;       // publication time (block.timestamp)
@@ -35,6 +37,9 @@ interface IReserveOracle {
     /// @notice Maximum allowed growth in totalGrams between consecutive attestations,
     ///         expressed in basis points (e.g. 5000 = +50%).
     function maxGrowthBps() external view returns (uint256);
+
+    /// @notice Minimum wall-clock spacing (seconds) required between attestations.
+    function minAttestationInterval() external view returns (uint256);
 
     /// @notice Most recent (latest) attestation.
     function latest() external view returns (Attestation memory);
@@ -75,4 +80,5 @@ interface IReserveOracle {
     event AuditorDeauthorized(address indexed auditor);
     event SignatureThresholdUpdated(uint256 newThreshold);
     event MaxGrowthBpsUpdated(uint256 newMaxGrowthBps);
+    event MinAttestationIntervalUpdated(uint256 newInterval);
 }

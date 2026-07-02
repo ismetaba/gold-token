@@ -105,6 +105,52 @@ contract SolvencyHandler {
         oracle.publish(a, sigs);
     }
 
+    /// @dev Publish a DOWNWARD reserve revision. Decreases bypass the growth cap, so this
+    ///      is the previously-untested path (the original handler only ever grew reserves).
+    ///      The drop is bounded to stay at or above circulating supply: a revision that
+    ///      dips below supply reflects a genuine real-world reserve loss whose remedy is an
+    ///      off-chain operational response (pause / halt minting), NOT an on-chain revert —
+    ///      so asserting supply<=attested through such a state would encode a guarantee the
+    ///      protocol does not (and should not) make on-chain. This still exercises the
+    ///      oracle's decrease branch and keeps the core solvency invariant a true property.
+    function attestDown(uint96 dropGrams) external {
+        uint256 prev = oracle.latestAttestedGrams();
+        if (prev == 0) return;
+        uint256 supply = token.totalSupply();
+        if (prev <= supply) return; // no solvent headroom to give back
+        uint256 maxDrop = prev - supply;
+        uint256 drop = bound(uint256(dropGrams), 1, maxDrop);
+        uint256 newTotal = prev - drop;
+        if (newTotal == 0) newTotal = 1; // keep strictly positive
+
+        // Strictly-increasing timestamps, past the min attestation interval.
+        vm.warp(block.timestamp + 2 hours);
+
+        IReserveOracle.Attestation memory a = IReserveOracle.Attestation({
+            timestamp: uint64(block.timestamp),
+            asOf: uint64(block.timestamp),
+            totalGrams: newTotal,
+            merkleRoot: bytes32(uint256(3)),
+            ipfsCid: bytes32(uint256(4)),
+            auditor: auditor
+        });
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256(
+                    "Attestation(uint64 timestamp,uint64 asOf,uint256 totalGrams,bytes32 merkleRoot,bytes32 ipfsCid,address auditor)"
+                ),
+                a.timestamp, a.asOf, a.totalGrams, a.merkleRoot, a.ipfsCid, a.auditor
+            )
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", oracle.DOMAIN_SEPARATOR(), structHash));
+        bytes[] memory sigs = new bytes[](2);
+        (uint8 v1, bytes32 r1, bytes32 s1) = vm.sign(auditorPk, digest);
+        sigs[0] = abi.encodePacked(r1, s1, v1);
+        (uint8 v2, bytes32 r2, bytes32 s2) = vm.sign(auditor2Pk, digest);
+        sigs[1] = abi.encodePacked(r2, s2, v2);
+        oracle.publish(a, sigs);
+    }
+
     /// @dev Full mint flow for a bounded amount to `user`.
     function mint(uint96 amount) external {
         uint256 attested = oracle.latestAttestedGrams();

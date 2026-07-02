@@ -11,6 +11,7 @@ import (
 var (
 	ErrInvalidAddress = errors.New("events: invalid ethereum address")
 	ErrInvalidAmount  = errors.New("events: invalid amount")
+	ErrInvalidArena   = errors.New("events: unknown arena/jurisdiction")
 )
 
 // parseAddress, "0x..." hex string'i 20-byte Address'e çevirir.

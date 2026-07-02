@@ -40,7 +40,6 @@ func NewHandlers(
 func (h *Handlers) Routes(env string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 
 	if env == "local" {
@@ -166,7 +165,14 @@ func (h *Handlers) setPreferences(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existing, _ := h.prefs.ByUserID(r.Context(), userID)
+	existing, err := h.prefs.ByUserID(r.Context(), userID)
+	if err != nil && !errors.Is(err, repo.ErrNotFound) {
+		// A real read failure must not silently reset persisted preferences to
+		// zero-value defaults (e.g. disabling a configured webhook). Fail loudly.
+		h.log.Error("load existing preferences", zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "GOLD.NOTIFICATION.INTERNAL", "failed to load preferences")
+		return
+	}
 
 	p := domain.Preferences{
 		ID:             existing.ID,

@@ -60,15 +60,22 @@ func (r *Relay) drain(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Process each row independently. A single failing (e.g. poison) row must not
+	// block the rest of the batch — publish is idempotent downstream via Msg-Id, so
+	// we skip the failed row (it is retried next tick) and continue draining.
+	// If the underlying bus/context is unhealthy the whole batch will fail; we stop
+	// only when the context is done to avoid a hot error loop.
 	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := r.pub.PublishRaw(ctx, row.Subject, row.ID.String(), row.Payload); err != nil {
-			// Leave the row unpublished; it will be retried on the next tick.
-			r.log.Warn("outbox publish failed; will retry",
+			r.log.Warn("outbox publish failed; will retry next tick",
 				zap.String("subject", row.Subject),
 				zap.String("event_id", row.ID.String()),
 				zap.Error(err),
 			)
-			return nil
+			continue
 		}
 		if err := r.repo.MarkPublished(ctx, row.ID); err != nil {
 			// Publication succeeded but the ack failed; the row will be
@@ -77,7 +84,7 @@ func (r *Relay) drain(ctx context.Context) error {
 				zap.String("event_id", row.ID.String()),
 				zap.Error(err),
 			)
-			return nil
+			continue
 		}
 	}
 	return nil

@@ -55,10 +55,15 @@ contract MintController is
         uint256 upgradeDelay;
         address scheduledImpl;
         uint256 scheduledAt;
+        // Eligibility snapshot captured at schedule time (see scheduleUpgrade).
+        uint256 scheduledEligibleAt;
     }
 
     /// @dev Default upgrade timelock: 48 hours.
     uint256 private constant DEFAULT_UPGRADE_DELAY = 48 hours;
+
+    /// @dev Floor for the upgrade timelock so it can never be reduced to an unsafe value.
+    uint256 private constant MIN_UPGRADE_DELAY = 24 hours;
 
     event UpgradeScheduled(address indexed newImpl, uint256 eligibleAt);
     event UpgradeCancelled(address indexed cancelledImpl);
@@ -234,6 +239,13 @@ contract MintController is
 
         $.token.mint(p.req.to, toRecipient, p.req.jurisdiction);
         if (fee > 0) {
+            // GoldToken.mint bypasses the compliance _update hook, so the fee recipient is
+            // never otherwise screened. Gate it with the same check applied to the primary
+            // recipient so freshly minted fee tokens cannot land on a frozen/sanctioned/
+            // expired-KYC/jurisdiction-blocked address.
+            if (!$.compliance.canMint($.feeRecipient, fee, p.req.jurisdiction)) {
+                revert Errors.NotAuthorized();
+            }
             $.token.mint($.feeRecipient, fee, p.req.jurisdiction);
             emit MintFeeCollected(proposalId, fee, $.feeRecipient);
         }
@@ -281,8 +293,12 @@ contract MintController is
         emit FeeRecipientUpdated(old, newFeeRecipient);
     }
 
-    /// @notice Configure rate limiting. window=0 or max=0 disables the limit.
+    /// @notice Configure rate limiting. Set BOTH window and max to 0 to disable the limit.
+    /// @dev Rejects the max>0/window==0 combination: with a zero window the per-window
+    ///      reset in executeMint fires on every call, silently degrading the cumulative
+    ///      cap to a meaningless per-transaction cap. Fail loudly at config time instead.
     function setRateLimit(uint256 window, uint256 max) external onlyRole(Roles.TREASURY_ROLE) {
+        if (max > 0 && window == 0) revert Errors.InvalidRateLimit(window, max);
         MintStorage storage $ = _s();
         $.rateLimitWindow = window;
         $.rateLimitMax = max;
@@ -290,6 +306,21 @@ contract MintController is
         $.rateLimitWindowStart = block.timestamp;
         $.rateLimitMinted = 0;
         emit RateLimitUpdated(window, max);
+    }
+
+    /// @notice Replace the ReserveOracle. TREASURY_ROLE only.
+    /// @dev ReserveOracle is an immutable, non-upgradeable deploy; this is the documented
+    ///      path to migrate to a new oracle version without upgrading the MintController.
+    function setOracle(address newOracle) external onlyRole(Roles.TREASURY_ROLE) {
+        if (newOracle == address(0)) revert Errors.ZeroAddress();
+        MintStorage storage $ = _s();
+        address old = address($.oracle);
+        $.oracle = IReserveOracle(newOracle);
+        emit OracleUpdated(old, newOracle);
+    }
+
+    function oracle() external view returns (address) {
+        return address(_s().oracle);
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -360,7 +391,9 @@ contract MintController is
         MintStorage storage $ = _s();
         $.scheduledImpl = newImpl;
         $.scheduledAt = block.timestamp;
-        emit UpgradeScheduled(newImpl, block.timestamp + $.upgradeDelay);
+        uint256 eligibleAt = block.timestamp + $.upgradeDelay;
+        $.scheduledEligibleAt = eligibleAt;
+        emit UpgradeScheduled(newImpl, eligibleAt);
     }
 
     function cancelScheduledUpgrade() external onlyRole(Roles.UPGRADER_ROLE) {
@@ -368,10 +401,14 @@ contract MintController is
         address cancelled = $.scheduledImpl;
         $.scheduledImpl = address(0);
         $.scheduledAt = 0;
+        $.scheduledEligibleAt = 0;
         emit UpgradeCancelled(cancelled);
     }
 
     function setUpgradeDelay(uint256 newDelay) external onlyRole(Roles.TREASURY_ROLE) {
+        if (newDelay < MIN_UPGRADE_DELAY) {
+            revert Errors.UpgradeDelayBelowMinimum(newDelay, MIN_UPGRADE_DELAY);
+        }
         _s().upgradeDelay = newDelay;
         emit UpgradeDelayUpdated(newDelay);
     }
@@ -397,11 +434,11 @@ contract MintController is
         if ($.scheduledImpl != newImpl || $.scheduledAt == 0) {
             revert Errors.UpgradeNotTimelocked();
         }
-        uint256 eligibleAt = $.scheduledAt + $.upgradeDelay;
-        if (block.timestamp < eligibleAt) {
-            revert Errors.UpgradeTimelockActive(eligibleAt);
+        if (block.timestamp < $.scheduledEligibleAt) {
+            revert Errors.UpgradeTimelockActive($.scheduledEligibleAt);
         }
         $.scheduledImpl = address(0);
         $.scheduledAt = 0;
+        $.scheduledEligibleAt = 0;
     }
 }

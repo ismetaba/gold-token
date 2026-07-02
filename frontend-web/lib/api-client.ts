@@ -52,9 +52,16 @@ const EXPIRES_KEY = "gold_token_expires";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+const KNOWN_ARENAS = new Set(["tr", "ch", "ae", "eu"]);
+const DEFAULT_ARENA = "tr";
+
+// getArena reads the selected jurisdiction from localStorage but allowlists it
+// against the known set before it is interpolated into the request URL/header,
+// so a tampered value cannot inject path segments or arbitrary header content.
 function getArena(): string {
-  if (typeof window === "undefined") return "tr";
-  return localStorage.getItem("gold_arena") ?? "tr";
+  if (typeof window === "undefined") return DEFAULT_ARENA;
+  const a = (localStorage.getItem("gold_arena") ?? DEFAULT_ARENA).toLowerCase();
+  return KNOWN_ARENAS.has(a) ? a : DEFAULT_ARENA;
 }
 
 function getAccessToken(): string | null {

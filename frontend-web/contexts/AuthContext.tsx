@@ -8,6 +8,7 @@ import React, {
   useState,
 } from "react";
 import { authApi, setOnAuthFailure } from "@/lib/api-client";
+// authApi.me() is used on session restore to validate the token against the backend.
 import type { AuthTokens, User } from "@/lib/types";
 
 interface AuthState {
@@ -41,27 +42,62 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loading: true,
   });
 
-  // Restore session from localStorage on mount
+  // Restore session on mount. The cached user is shown optimistically for a fast
+  // first paint, but the session is then re-validated against the backend via
+  // authApi.me(): the token — not localStorage — is the source of truth. If
+  // validation fails the session is cleared. (Authorization itself is always
+  // enforced server-side; any client-side role is display-only.)
   useEffect(() => {
+    let cancelled = false;
+    const accessToken = localStorage.getItem(TOKEN_KEY);
+    const refreshToken = localStorage.getItem(REFRESH_KEY);
+    const expiresAt = Number(localStorage.getItem(EXPIRES_KEY) ?? "0");
+
+    if (!accessToken) {
+      setState((s) => ({ ...s, loading: false }));
+      return;
+    }
+
+    let cachedUser: User | null = null;
     try {
       const raw = localStorage.getItem(USER_KEY);
-      const accessToken = localStorage.getItem(TOKEN_KEY);
-      const refreshToken = localStorage.getItem(REFRESH_KEY);
-      const expiresAt = Number(localStorage.getItem(EXPIRES_KEY) ?? "0");
+      if (raw) cachedUser = JSON.parse(raw) as User;
+    } catch {
+      cachedUser = null;
+    }
+    // Optimistic paint with the cached identity while we validate.
+    setState({
+      user: cachedUser,
+      tokens: { accessToken, refreshToken: refreshToken ?? "", expiresAt },
+      loading: true,
+    });
 
-      if (raw && accessToken) {
-        const user: User = JSON.parse(raw);
+    (async () => {
+      try {
+        const res = await authApi.me();
+        if (cancelled) return;
+        // Merge authoritative fields from the backend over the cached user.
+        const authoritative = { ...(cachedUser ?? {}), ...res.data } as User;
+        localStorage.setItem(USER_KEY, JSON.stringify(authoritative));
         setState({
-          user,
-          tokens: { accessToken, refreshToken: refreshToken ?? "", expiresAt },
+          user: authoritative,
+          tokens: { accessToken: localStorage.getItem(TOKEN_KEY) ?? accessToken, refreshToken: refreshToken ?? "", expiresAt },
           loading: false,
         });
-        return;
+      } catch {
+        if (cancelled) return;
+        // Token invalid/expired (after the api-client's refresh-and-retry) — clear.
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(REFRESH_KEY);
+        localStorage.removeItem(EXPIRES_KEY);
+        localStorage.removeItem(USER_KEY);
+        setState({ user: null, tokens: null, loading: false });
       }
-    } catch {
-      // ignore parse errors
-    }
-    setState((s) => ({ ...s, loading: false }));
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const persist = useCallback((user: User, tokens: AuthTokens) => {

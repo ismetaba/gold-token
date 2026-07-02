@@ -69,15 +69,15 @@ func run(ctx context.Context, log *zap.Logger, cfg *config.Config) error {
 		defer bus.Close()
 	}
 
-	// 3. Token manager (RS256; generates ephemeral key in local mode)
+	// 3. Token manager (RS256; ephemeral key permitted only in local mode)
 	accessTTL := time.Duration(cfg.AccessTokenTTL) * time.Second
 	refreshTTL := time.Duration(cfg.RefreshTokenTTL) * time.Second
-	tm, err := tokens.NewManager(cfg.JWTPrivateKeyFile, cfg.JWTPublicKeyFile, accessTTL, refreshTTL)
+	tm, err := tokens.NewManager(cfg.JWTPrivateKeyFile, cfg.JWTPublicKeyFile, cfg.Env, accessTTL, refreshTTL)
 	if err != nil {
 		return err
 	}
 	if cfg.JWTPrivateKeyFile == "" {
-		log.Warn("token manager: using ephemeral RSA key — not suitable for production")
+		log.Warn("token manager: using ephemeral RSA key — local mode only, not suitable for production")
 	}
 
 	// 4. Repos

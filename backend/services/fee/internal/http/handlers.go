@@ -33,7 +33,6 @@ func NewHandlers(schedules repo.ScheduleRepo, ledger repo.LedgerRepo, adminSecre
 func (h *Handlers) Routes(env string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 
 	if env == "local" {

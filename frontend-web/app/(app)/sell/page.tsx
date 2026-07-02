@@ -39,6 +39,16 @@ export default function SellPage() {
 
   const handleCreateOrder = async () => {
     if (!price || grams <= 0 || exceedsBalance) return;
+    // Client-side format check for the payout destination. The backend remains the
+    // authoritative validator; this just gives immediate feedback and avoids sending
+    // obviously-malformed values. Accepts an IBAN or a 0x Ethereum address.
+    const dest = iban.trim().replace(/\s+/g, "");
+    const isIban = /^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/.test(dest.toUpperCase());
+    const isEthAddress = /^0x[0-9a-fA-F]{40}$/.test(dest);
+    if (!isIban && !isEthAddress) {
+      setError("Geçerli bir IBAN veya 0x cüzdan adresi girin.");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -46,7 +56,7 @@ export default function SellPage() {
       const res = await ordersApi.createSellOrder({
         amountGrams,
         idempotencyKey,
-        ibanOrAddress: iban,
+        ibanOrAddress: dest,
       });
       setOrder(res.data);
       setStep("confirm");

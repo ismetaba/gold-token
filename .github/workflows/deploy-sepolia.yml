@@ -57,14 +57,18 @@ jobs:
       - name: Determine broadcast flag
         id: flags
         run: |
+          # SAFE DEFAULT: only a MANUAL run (workflow_dispatch) that explicitly sets
+          # dry_run=false broadcasts live. The automatic post-CI trigger (workflow_run)
+          # and any run without an explicit opt-in are dry-run, so merging to main can
+          # never itself broadcast a live deploy with the deployer key. The live path is
+          # additionally gated by the 'sepolia-staging' protected environment reviewers.
           DRY="${{ github.event.inputs.dry_run }}"
-          # workflow_run triggers always broadcast; manual default is also broadcast unless dry_run=true
-          if [ "$DRY" = "true" ]; then
-            echo "broadcast_flags=" >> "$GITHUB_OUTPUT"
-            echo "mode=dry-run" >> "$GITHUB_OUTPUT"
-          else
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "$DRY" = "false" ]; then
             echo "broadcast_flags=--broadcast --slow" >> "$GITHUB_OUTPUT"
             echo "mode=live" >> "$GITHUB_OUTPUT"
+          else
+            echo "broadcast_flags=" >> "$GITHUB_OUTPUT"
+            echo "mode=dry-run" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Deploy contracts (${{ steps.flags.outputs.mode }})

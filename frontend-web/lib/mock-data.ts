@@ -14,7 +14,9 @@ export const MOCK: {
     fullName: "Ayşe Yılmaz",
     arena: "tr",
     kycStatus: "approved",
-    role: "admin",
+    // Default mock-login identity is a normal user. Mock login must never grant admin;
+    // admin panels are gated server-side and have their own admin fixtures below.
+    role: "user",
     createdAt: "2026-01-15T10:00:00Z",
   },
 

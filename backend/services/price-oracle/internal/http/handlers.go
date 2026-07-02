@@ -3,6 +3,9 @@ package http
 
 import (
 	"net/http"
+	"net/url"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -16,12 +19,45 @@ import (
 	"github.com/ismetaba/gold-token/backend/services/price-oracle/internal/repo"
 )
 
+// wsAllowedOrigins is a comma-separated allowlist from GOLD_WS_ALLOWED_ORIGINS
+// (e.g. "https://app.gold.example,https://admin.gold.example"). When set to "*"
+// (local dev) all origins are allowed.
+var wsAllowedOrigins = strings.Split(os.Getenv("GOLD_WS_ALLOWED_ORIGINS"), ",")
+
+// checkWSOrigin defends against cross-site WebSocket hijacking. A missing Origin
+// header (non-browser client) is allowed; browser origins must be same-host or on
+// the configured allowlist. Default-deny when neither matches.
+func checkWSOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true // non-browser client (no CSWSH risk)
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	if u.Host == r.Host {
+		return true // same-origin
+	}
+	for _, a := range wsAllowedOrigins {
+		a = strings.TrimSpace(a)
+		if a == "*" {
+			return true
+		}
+		if a != "" && strings.EqualFold(a, origin) {
+			return true
+		}
+	}
+	return false
+}
+
 var wsUpgrader = websocket.Upgrader{
 	HandshakeTimeout: 5 * time.Second,
 	ReadBufferSize:   256,
 	WriteBufferSize:  1024,
-	// Allow all origins; callers should restrict at the gateway/proxy layer.
-	CheckOrigin: func(r *http.Request) bool { return true },
+	// Restrict cross-origin upgrades (see checkWSOrigin); configure the allowlist via
+	// GOLD_WS_ALLOWED_ORIGINS, and additionally restrict at the gateway/proxy layer.
+	CheckOrigin: checkWSOrigin,
 }
 
 // Handlers wires together the oracle, repo, and HTTP endpoints.
@@ -40,7 +76,6 @@ func NewHandlers(o *oracle.Oracle, r repo.PriceRepo, log *zap.Logger) *Handlers 
 func (h *Handlers) Routes(env string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 
 	if env == "local" {
